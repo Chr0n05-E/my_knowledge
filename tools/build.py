@@ -22,6 +22,7 @@ import html as htmllib
 import json
 import os
 import re
+import shutil
 import sys
 import webbrowser
 from datetime import datetime
@@ -41,9 +42,30 @@ VIEWER_TEMPLATE = ROOT / "tools" / "viewer" / "index.html"
 # 叶子笔记（type: concept）必须出现的章节。想放松就把列表改空。
 REQUIRED_SECTIONS = ["我的理解"]
 
+ASSET_DIR = OUT_DIR / "assets"
+
 FM_RE = re.compile(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?", re.S)
 LINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]")
+LINK_RE_NO_IMG = re.compile(r"(?<!!)\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]")   # 排除 ![[图片]]
 H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)
+IMG_MD_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
+IMG_WIKI_RE = re.compile(r"!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
+IMG_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif"}
+_IMG_INDEX: dict[str, Path] | None = None
+
+
+def image_index() -> dict[str, Path]:
+    """vault 内所有图片按文件名建索引（Obsidian 的 ![[文件名]] 就是这么解析的）。"""
+    global _IMG_INDEX
+    if _IMG_INDEX is None:
+        idx: dict[str, Path] = {}
+        if NOTES_DIR.exists():
+            for p in NOTES_DIR.rglob("*"):
+                if p.is_file() and p.suffix.lower() in IMG_EXT:
+                    idx.setdefault(p.name.lower(), p)
+                    idx.setdefault(p.stem.lower(), p)
+        _IMG_INDEX = idx
+    return _IMG_INDEX
 
 C_RESET, C_DIM, C_WARN, C_ERR, C_OK, C_HEAD = "\033[0m", "\033[2m", "\033[33m", "\033[31m", "\033[32m", "\033[1m"
 if os.name == "nt" and not os.environ.get("WT_SESSION"):
@@ -216,6 +238,11 @@ def inline(text: str, resolve) -> str:
     text = re.sub(r"`([^`]+)`", keep, text)
     text = htmllib.escape(text, quote=False)
 
+    # 图片必须排在普通链接前面，否则会被 [text](url) 规则先吃掉
+    text = IMG_MD_RE.sub(
+        lambda m: f'<img src="{htmllib.escape(m.group(2), quote=True)}" '
+                  f'alt="{htmllib.escape(m.group(1), quote=True)}" loading="lazy">', text)
+
     def wikilink(m):
         target = m.group(1).strip()
         disp = (m.group(2) or target).strip() or target
@@ -224,7 +251,7 @@ def inline(text: str, resolve) -> str:
             return f'<a class="wl" href="#" data-target="{htmllib.escape(tid, quote=True)}">{htmllib.escape(disp)}</a>'
         return f'<span class="wl-missing" title="没有找到这个节点">{htmllib.escape(disp)}</span>'
 
-    text = LINK_RE.sub(wikilink, text)
+    text = LINK_RE_NO_IMG.sub(wikilink, text)
     text = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r'<a href="\2" target="_blank" rel="noreferrer">\1</a>', text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<em>\1</em>", text)
@@ -245,6 +272,47 @@ def plain_text(md: str) -> str:
 # --------------------------------------------------------------------------
 # 加载
 # --------------------------------------------------------------------------
+def collect_assets(n: dict, warnings: list[str]) -> str:
+    """把笔记里引用到的本地图片拷进 out/assets/，并把正文里的路径改写成 out 内的相对路径。
+
+    支持两种写法：Markdown 的 ![](相对路径) 与 wiki 的 ![[文件名]]（Obsidian 常用）。
+    查找顺序：笔记所在目录 -> 库根目录 -> notes/。
+    """
+    note_dir = (ROOT / n["file"]).parent
+
+    def copy_img(ref: str) -> str:
+        ref = ref.strip().strip("<>").strip()
+        if re.match(r"^(https?:|data:)", ref, re.I):
+            return ref
+        cands = [note_dir / ref, ROOT / ref, NOTES_DIR / ref]
+        by_name = image_index().get(Path(ref).name.lower())
+        if by_name:
+            cands.append(by_name)
+        for cand in cands:
+            try:
+                if not cand.is_file():
+                    continue
+                ASSET_DIR.mkdir(parents=True, exist_ok=True)
+                dest = ASSET_DIR / cand.name
+                k = 1
+                while dest.exists() and dest.read_bytes() != cand.read_bytes():
+                    dest = ASSET_DIR / f"{cand.stem}-{k}{cand.suffix}"
+                    k += 1
+                if not dest.exists():
+                    shutil.copy2(cand, dest)
+                return f"assets/{dest.name}"
+            except OSError:
+                continue
+        warnings.append(f"{n['id']}: 图片「{ref}」找不到（笔记目录、库根目录、notes/ 都试过了）")
+        return ref
+
+    body = n["body_md"]
+    body = IMG_WIKI_RE.sub(
+        lambda m: f"![{Path(m.group(1)).stem}]({copy_img(m.group(1))})", body)
+    body = IMG_MD_RE.sub(lambda m: f"![{m.group(1)}]({copy_img(m.group(2))})", body)
+    return body
+
+
 def load_nodes(warnings: list[str]) -> dict:
     nodes: dict[str, dict] = {}
     if not NOTES_DIR.exists():
@@ -271,7 +339,7 @@ def load_nodes(warnings: list[str]) -> dict:
 
         sections = [s.strip() for s in re.findall(r"^#{2,3}\s+(.+?)\s*$", body, re.M)]
         ntype = str(fm.get("type") or ("domain" if "." not in rel.name else "concept")).strip()
-        links_raw = [(t.strip(), (d or t).strip()) for t, d in LINK_RE.findall(body)]
+        links_raw = [(t.strip(), (d or t).strip()) for t, d in LINK_RE_NO_IMG.findall(body)]
 
         nodes[nid] = {
             "id": nid,
@@ -424,7 +492,7 @@ def render_outline(nodes: dict, children: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_payload(nodes: dict, children: dict, resolve) -> dict:
+def build_payload(nodes: dict, children: dict, resolve, warnings: list[str]) -> dict:
     top_level = {nid for nid, n in nodes.items() if not n["primary_parent"]}
 
     def top_of(nid: str) -> str:
@@ -441,7 +509,8 @@ def build_payload(nodes: dict, children: dict, resolve) -> dict:
 
     out_nodes = []
     for nid, n in nodes.items():
-        body_html = md_to_html(n["body_md"], resolve)
+        body_md = collect_assets(n, warnings)
+        body_html = md_to_html(body_md, resolve)
         out_nodes.append({
             "id": nid,
             "title": n["title"],
@@ -505,7 +574,7 @@ def main() -> int:
     OUT_DIR.mkdir(exist_ok=True)
     (OUT_DIR / "KNOWLEDGE-MAP.md").write_text(render_outline(nodes, children), encoding="utf-8")
 
-    payload = build_payload(nodes, children, resolve)
+    payload = build_payload(nodes, children, resolve, warnings)
     (OUT_DIR / "graph.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

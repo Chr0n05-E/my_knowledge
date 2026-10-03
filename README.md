@@ -48,8 +48,9 @@ E:\Knowledge\
 │  ├─ concept.md                   叶子概念笔记模板
 │  └─ domain.md                    分支/领域节点模板
 ├─ tools/
-│  ├─ build.py                     校验 + 生成三个视图
+│  ├─ build.py                     校验 + 生成三个视图（含图片拷贝到 out/assets/）
 │  ├─ new.py                       按模板新建一条笔记
+│  ├─ make_sample_figure.py        生成示例插图（演示图片管线）
 │  └─ viewer/index.html            图谱查看器模板（build.py 把数据塞进去）
 └─ out/                            构建产物，可以随时删（已 gitignore）
    ├─ graph.html                   ★ 双击打开：左侧折叠树 + 右侧正文 + 全局力导向图
@@ -110,10 +111,19 @@ updated: 2026-02-14
 - `title` 重复时脚本会警告（双链解析会歧义）。
 - 想换语言/换分类体系都随便，脚本不关心 id 里的词是什么，只关心路径存在。
 
-### 4.2 双链
+### 4.2 双链与图片
 
 在正文里写 `[[math/algebra|代数]]` 或 `[[群论]]`（先按 id 精确匹配，再按 title / 别名匹配）。
 找不到目标时脚本会警告，图谱里显示为黄色虚线的「悬空链接」——这正是你该去补的洞。
+
+图片两种写法都支持，构建时会被拷进 `out/assets/` 并改写路径（笔记本身保持原样）：
+
+```markdown
+![](attachments/diagram.png)          ← 相对本文档目录
+![[zhongfeng-vs-pianfeng.png]]        ← wiki 写法，按文件名在整个 notes/ 里找（Obsidian 习惯）
+```
+
+找不到的图片会出现在构建报告的警告里。示例：`notes/aesthetics/calligraphy/zhongfeng.md` 里那张墨量示意图，就是由 `tools/make_sample_figure.py` 用 numpy+Pillow 画出来的（书法这类学科没有图基本没法写）。
 
 ### 4.3 叶子笔记的章节
 
