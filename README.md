@@ -289,6 +289,9 @@ git add -A ; git commit -m "初始化知识库骨架"
 | [mind-elixir](https://github.com/SSShooter/mind-elixir-core) | MIT | 活跃（2026-10-03 仍有提交；v5.15.1，2026-08） | 可交互**编辑**的脑图内核，官方有 `exportSvg` / `exportPng`；从 Markdown 导入不是它强项 |
 | [Freeplane](https://github.com/freeplane/freeplane) | GPL-2.0 | 活跃（2026-09-27） | 桌面 Java 应用，节点可直接挂本地文件链接；Markdown 往返要靠第三方脚本 |
 | [KityMinder](https://github.com/fex-team/kityminder) | BSD-3 | **最后提交 2019-08** | 不要用（它服务的百度脑图早已下线） |
+| [jsMind](https://github.com/hizzgdev/jsmind) | 仓库字段 `NOASSERTION`，npm 声明 BSD-3-Clause | 低频但活着（v0.9.1，2025-12） | 适合嵌网页的轻量 canvas 脑图；导出为 canvas 截图，不原生支持 SVG |
+
+> **许可核实方法提醒**：上表的许可证取自机器可读字段（GitHub `license.spdx_id`、npm/PyPI 的 `license`）。这类字段**已知会误报**（例：jsMind 在 GitHub 是 `NOASSERTION`、在 npm 是 `BSD-3-Clause`；`graphiti-core` 在 PyPI 的 license 字段是空的）。**凡涉及商用或对外分发的最终决定，请以仓库内 LICENSE 原文为准**，别信这张表。
 
 ### 12.2 图谱前端（自己写只读查看器时选一个）
 
