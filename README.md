@@ -250,3 +250,25 @@ git add -A ; git commit -m "初始化知识库骨架"
 
 **Q：为什么不全自动（让 AI 直接读我的文件生成知识库）？**
 可以自动生成**结构**（分类、双链候选、缺失概念的提醒），但「我的理解」这一栏必须由人写——否则得到的是一个搜索引擎，不是知识库。AI 最合适的角色是审计者：指出哪些叶子节点还是空的、哪些概念被反复引用却还没建条目、哪些链接指向了不存在的节点。
+
+---
+
+## 11. 附：现成软件速查（2026-10-03 核实，均取自各仓库 API / 官方文件）
+
+如果你更想用现成软件而不是这套脚本，这张表是当时的核实结果（版本与活跃度会变，结论看"一句话"）：
+
+| 工具 | 许可证 | 最近活动 | 层级表达 | 图谱 | 存储 | 一句话结论 |
+|---|---|---|---|---|---|---|
+| [Obsidian](https://obsidian.md) | 闭源·免费（个人/商用均可） | v1.14.4（2026-10-01） | 文件夹树 + frontmatter 属性（内置 Bases / Dataview 查询） | 原生全局与局部图谱 | 纯 Markdown + YAML | **最省事的长期选择**：本体闭源，但数据是纯文本，锁不住你 |
+| [思源 SiYuan](https://github.com/siyuan-note/siyuan) | AGPL-3.0 | v3.8.7-alpha.3（2026-10-03） | 文档树，任意深度 | 关系图 | `.sy` JSON（**非 Markdown**）+ SQLite 索引 | 中文体验与块级引用最好；代价是数据格式不便被外部工具直读 |
+| [TriliumNext](https://github.com/TriliumNext/Trilium) | AGPL-3.0-only | v0.106.0（2026-09-25） | **数据模型天生就是树** | Note Map / Relation Map | SQLite 单库 | 「深层级分类」的原生最优解；同步偏自建、UI 偏工程师向。注意旧仓库 `zadam/trilium` 已重定向、`TriliumNext/Notes` 已归档 |
+| [Logseq](https://github.com/logseq/logseq) | AGPL-3.0 | 2.0.1（2026-07-13），nightly 仍在推 | 大纲 + namespace（文件夹树弱） | 有，但大规模库表现一般 | **2.0 起从 Markdown 转数据库** | 数据库化与「数据必须归自己、十年后还能读」直接冲突，排在前面三者之后 |
+| [Anytype](https://github.com/anyproto/anytype-ts) | **ASAL-1.0（非 OSI 开源）** | v0.57.3（2026-09-30） | 2026 年才加上的树侧栏 | Graph | 加密私有对象库 | 重视隐私/ P2P 可选；但许可限制商业网络、数据不可外部直读，不适合当长期底座 |
+| [AppFlowy](https://github.com/AppFlowy-IO/AppFlowy) | AGPL-3.0 | v0.14.6（2026-10-01） | 页面树 + 数据库关联 | 无原生图谱（判断） | SQLite | Notion 复刻，协作/数据库强，做学科分类不顺手 |
+| [Foam](https://github.com/foambubble/foam)（VS Code 扩展） | MIT | vscode@0.46.0（2026-09-30） | 靠 VS Code 资源管理器 | 有图谱面板 | 纯 Markdown | 想「一切都在 VS Code 里」就用它；缺移动端与块引用 |
+| [Dendron](https://github.com/dendronhq/dendron) | Apache-2.0 | **最后提交 2025-06-01，事实停更**（未归档，releases 为空） | 层级即文件名（理念最贴合本库） | 有 | 纯 Markdown | 设计值得借鉴，**不要用于新建** |
+| [Reor](https://github.com/reorproject/reor) | AGPL-3.0 | **仓库已归档**（最后提交 2025-05-13） | — | — | 本地 MD + 向量库 | 不要用 |
+| [Khoj](https://github.com/khoj-ai/khoj) | AGPL-3.0 | 仓库 2026-08-02；PyPI 1.42.10（另有 2.0.0-beta 线） | 无 | 无 | 索引外部文档 | **不是编辑器**，是 RAG/语义检索层，适合叠在 Obsidian/思源之上做自然语言提问 |
+
+要点：**没有一个是「装了就把知识库建好」的**。软件只解决视图层；数据层与结构层的决定（怎么分类、叶子写什么、允许多归属）只能你自己做——而这恰好是本库 `notes/` + frontmatter 那两层在做的事，所以它跟上面任何一个软件都不冲突，随时可以换前台。
+
