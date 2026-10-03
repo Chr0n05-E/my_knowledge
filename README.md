@@ -156,8 +156,11 @@ updated: 2026-02-14
 **`out/KNOWLEDGE-MAP.md`（思维导图）** —— 纯缩进大纲。三种用法：
 
 1. 拖进 <https://markmap.js.org/repl> 立刻得到可交互思维导图；
-2. Obsidian 装 Markmind / Enhancing Mindmap 插件后直接打开；
-3. 任何支持 Markdown 大纲的工具（幕布、Xmind 导入、Freeplane 的 Markdown 导入）。
+2. 本地装好 Node 后一条命令就能离线生成（已实测，`markmap-cli` 直接吃这个文件）：
+   ```powershell
+   npx --yes markmap-cli@latest out\KNOWLEDGE-MAP.md -o out\mindmap.html --no-open
+   ```
+3. Obsidian 装 Markmind / Enhancing Mindmap 插件后直接打开；任何支持 Markdown 大纲的工具（幕布、Xmind 导入、Freeplane 的 Markdown 导入）也能吃。
 
 **`out/graph.json`（给程序）** —— `nodes` 带 frontmatter 字段与渲染好的 HTML，`edges` 带 `kind`（`tree` / `cross` / `link`）。想接 Cytoscape.js / G6 / Neo4j / Gephi 都是几十行的事。
 
@@ -273,4 +276,52 @@ git add -A ; git commit -m "初始化知识库骨架"
 | [Khoj](https://github.com/khoj-ai/khoj) | AGPL-3.0 | 仓库 2026-08-02；PyPI 1.42.10（另有 2.0.0-beta 线） | 无 | 无 | 索引外部文档 | **不是编辑器**，是 RAG/语义检索层，适合叠在 Obsidian/思源之上做自然语言提问 |
 
 要点：**没有一个是「装了就把知识库建好」的**。软件只解决视图层；数据层与结构层的决定（怎么分类、叶子写什么、允许多归属）只能你自己做——而这恰好是本库 `notes/` + frontmatter 那两层在做的事，所以它跟上面任何一个软件都不冲突，随时可以换前台。
+
+---
+
+## 12. 附：可视化 / 图数据库工具速查（2026-10-03 核实）
+
+### 12.1 大纲 → 思维导图
+
+| 项目 | 许可证 | 状态（核实值） | 结论 |
+|---|---|---|---|
+| [markmap](https://github.com/markmap/markmap) | MIT | 仓库 2026-09-12 有提交，**正式版停在 0.18.12（2025-02）** | **本库大纲的默认出口**（已实测：`markmap-cli` 直接吃 `out/KNOWLEDGE-MAP.md`）。稳定，但别指望新功能 |
+| [mind-elixir](https://github.com/SSShooter/mind-elixir-core) | MIT | 活跃（2026-10-03 仍有提交；v5.15.1，2026-08） | 可交互**编辑**的脑图内核，官方有 `exportSvg` / `exportPng`；从 Markdown 导入不是它强项 |
+| [Freeplane](https://github.com/freeplane/freeplane) | GPL-2.0 | 活跃（2026-09-27） | 桌面 Java 应用，节点可直接挂本地文件链接；Markdown 往返要靠第三方脚本 |
+| [KityMinder](https://github.com/fex-team/kityminder) | BSD-3 | **最后提交 2019-08** | 不要用（它服务的百度脑图早已下线） |
+
+### 12.2 图谱前端（自己写只读查看器时选一个）
+
+| 库 | 许可证 | 状态 | 适用 |
+|---|---|---|---|
+| [Cytoscape.js](https://github.com/cytoscape/cytoscape.js) | MIT | 活跃（v3.34.3，2026-08） | **自建查看器首选**：`{nodes, edges}` 直接出图，自带布局、选择、缩放，还有最短路径/连通分量等图算法 API |
+| [Sigma.js](https://github.com/jacomyal/sigma.js) | MIT | 活跃（4.0 仍是 beta） | WebGL，几千~十万节点的浏览性能上限最高；布局要自己配（graphology + FA2） |
+| [AntV G6](https://github.com/antvis/G6) | MIT | 正式版 5.1.1（2025-06）后节奏放缓 | 功能最全、中文文档最好 |
+| [vis-network](https://github.com/visjs/vis-network) | Apache-2.0 | 活跃 | 上手最快，适合几百节点级的示意图 |
+| [d3-force](https://github.com/d3/d3-force) | ISC | 最后 push 2023-12（模块化仓库，稳定≠废弃） | 只是布局算法，渲染/命中测试/标签避让全要自己写 |
+
+顺带一条对"要不要自建图谱"很有用的事实：[Obsidian 官方论坛](https://forum.obsidian.md/t/obsidian-graph-view-doesnt-work-for-a-large-vault/106287) 的用户实测显示，约 **25,000 个文件**是桌面端图谱视图的实用上限（13 万笔记的库直接卡死）。我们这种几百到几千条**远在舒适区内**——也就是说，如果你愿意用 Obsidian，它的原生图谱就够用，不必自建。另外常用插件 **Juggl 最后一次发布是 1.5.0（2022-03），事实上已停止维护**，别把它当长期依赖。
+
+### 12.3 图数据库 / 语义层
+
+| 项目 | 许可证 | 需要常驻服务 | 备注 |
+|---|---|---|---|
+| Neo4j（社区版） | **GPL-3.0** | 是（JVM） | 生态最大。自用没问题，但**"社区版免费"不等于可以随便分发组合产品**（GPLv3 传染性） |
+| Memgraph / ArangoDB | source-available（**非 OSI 开源**） | 是 | 商用/托管前必须读许可原文 |
+| **Kùzu** | MIT | 否（嵌入式） | **仓库已归档**：最后 push 2025-10-10，最后一版 v0.11.3（2025-08-21）。曾是最适合个人的嵌入式图库，现在已经死了 |
+| LadybugDB | 未核实 | 否 | Kùzu 的社区继任者，仍在发版（v0.21.2，2026-09-30），但**自身长期可持续性未知**——典型的"接盘 fork"风险 |
+| Oxigraph | Apache-2.0 | 可选 | RDF + SPARQL 路线，许可最友好 |
+
+### 12.4 LLM 自动建图
+
+| 项目 | 许可证 | 状态（核实值） | 备注 |
+|---|---|---|---|
+| Microsoft GraphRAG | MIT | **作者已宣告进入 maintenance mode**（官方原文：不接受新 PR、不实现新功能，只修 bug 与依赖/CVE） | 许可宽松，但别再指望它演进；索引成本高 |
+| [getzep/graphiti](https://github.com/getzep/graphiti) | Apache-2.0 | 活跃（v0.30.2，2026-09-01） | **时序**知识图谱，面向 agent；需要 Neo4j / FalkorDB / Neptune 后端 + 一个 LLM 与 embedding 端点，**不是单机零依赖**。它的 README 明写"Kùzu 已弃用，上游项目已无人维护" |
+| LightRAG | MIT | 活跃（v1.5.7，2026-08） | 轻量 GraphRAG 替代 |
+
+### 12.5 一句话总结
+
+**你想要的是「图谱」这个视图，不是「图数据库」这个引擎**——中文都叫知识图谱，英文都叫 graph，但一个是渲染问题，一个是存储与查询问题。几百到几千条笔记的全量重建是**秒级**，所以"派生物永远全量重建、笔记是唯一真源"这条策略完全成立；而图数据库的价值前提恰恰是"全量重建太贵，所以必须增量维护"，这个前提在你这个量级不成立。**什么时候才该上数据库**：笔记进入数万条、日常操作变成跨全库的条件聚合查询、需要把图谱作为服务暴露给别的程序、或者多人并发编辑同一张图——这四条一条不占，就继续用文件。
+
 
