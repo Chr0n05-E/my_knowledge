@@ -141,7 +141,7 @@ updated: 2026-02-14
 - 右侧是笔记正文，公式用 KaTeX 渲染（需联网加载 CDN；断网时公式显示为原始 LaTeX，不影响阅读）；
 - 顶栏切到「图谱」是全局力导向图：灰实线=层级、紫虚线=多父挂载、橙虚线=双链关联；底部图例可按顶层领域筛选；滚轮缩放、拖动平移、单击节点跳转；
 - 搜索框支持标题/id/标签/别名/正文全文（按 `/` 聚焦，`Esc` 清空）；
-- URL 带 `#节点id`，可以直接分享/收藏某个知识点的位置。
+- URL 带 `#节点id`，可以直接分享/收藏某个知识点的位置；`?view=graph` 可让它打开时直接进入图谱视图（例如 `graph.html?view=graph#math/algebra`）。
 
 **`out/KNOWLEDGE-MAP.md`（思维导图）** —— 纯缩进大纲。三种用法：
 
@@ -173,7 +173,7 @@ updated: 2026-02-14
 ```dataview
 LIST
 FROM "notes"
-WHERE contains(parents, this.id) OR primaryParent = this.id
+WHERE contains(parents, this.id)
 SORT title ASC
 ```
 ````

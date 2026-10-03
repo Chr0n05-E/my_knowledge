@@ -257,7 +257,8 @@ function crumbHtml(n){
   return chain.map(x => `<a href="#" data-target="${esc(x.id)}">${esc(x.title)}</a>`).join(' <span style="opacity:.5">›</span> ');
 }
 
-function openNote(id){
+function openNote(id, opts){
+  const keepView = !!(opts && opts.keepView);
   const n = byId[id];
   if (!n) return;
   lastId = id;
@@ -298,7 +299,7 @@ function openNote(id){
     a.addEventListener('click', e => { e.preventDefault(); openNote(a.dataset.target); });
   });
   document.querySelector('main').scrollTop = 0;
-  setView('note');
+  if (!keepView) setView('note');
   renderMath();
   location.hash = encodeURIComponent(id);
 }
@@ -396,9 +397,15 @@ G.nodes.forEach(g => {
 });
 
 const sim = {
-  alpha: 1, running: false, raf: 0,
+  alpha: 1, running: false, raf: 0, presettled: false,
+  presettle(n){                       // 先离线算几百步，避免打开时看到一堆挤在角落的点
+    for (let i = 0; i < n; i++){ this.alpha = .9; this.tick(); }
+    this.alpha = .9;
+    this.presettled = true;
+  },
   start(){
     if (this.running) return;
+    if (!this.presettled){ this.presettle(280); this.fit(); }
     this.running = true;
     if (this.alpha < .05) this.alpha = 1;
     const step = () => {
@@ -568,10 +575,12 @@ DATA.roots.forEach(r => {
 });
 
 /* 启动 */
-setView('note');
+const params = new URLSearchParams(location.search);
+const wantGraph = params.get('view') === 'graph';
 const first = decodeURIComponent(location.hash.replace(/^#/, ''));
 const startId = (first && byId[first]) ? first : (DATA.roots[0] || null);
-if (startId) openNote(startId);
+if (startId) openNote(startId, { keepView: wantGraph });
+setView(wantGraph ? 'graph' : 'note');
 window.addEventListener('hashchange', () => {
   const id = decodeURIComponent(location.hash.replace(/^#/, ''));
   if (id && byId[id] && id !== lastId) openNote(id);
