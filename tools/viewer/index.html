@@ -104,6 +104,26 @@
   a.wl:hover{background:rgba(106,166,255,.12)}
   article img{max-width:100%;height:auto;display:block;margin:14px 0;border-radius:8px;
     border:1px solid var(--line);background:#fff}
+  /* 笔记里的「关系」面板 */
+  .relpanel{margin:0 0 24px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--bg2)}
+  .relpanel-title{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--fg3);letter-spacing:.06em;margin-bottom:6px}
+  .relrow{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:12.5px;line-height:1.7}
+  .relchip{flex:0 0 auto;font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--c);color:var(--c);white-space:nowrap}
+  .reltargets{flex:1;color:var(--fg2)}
+  .reldir{color:var(--fg3);font-size:11px;margin-right:3px}
+  .relbtn{margin-left:auto;background:none;border:1px solid var(--line);color:var(--fg2);border-radius:5px;
+    font-size:11px;padding:1px 8px;cursor:pointer;font-family:inherit}
+  .relbtn:hover{border-color:var(--accent);color:var(--fg)}
+  /* 图谱底部两行图例：领域 / 关系 */
+  #rellegend{position:absolute;left:14px;bottom:54px;display:flex;flex-wrap:wrap;gap:6px;max-width:80%}
+  .rlg{display:flex;align-items:center;gap:6px;font-size:11.5px;background:rgba(23,26,34,.86);
+    border:1px solid var(--line);border-radius:99px;padding:3px 10px;cursor:pointer;color:var(--fg2)}
+  .rlg.off{opacity:.3}
+  .rlg.ctl{color:var(--accent);border-color:#2f4463}
+  .rlg i{display:block;width:15px;height:0;border-top:2px solid var(--c)}
+  .rlg i.dashed{border-top-style:dashed}
+  .rlg i.dotted{border-top-style:dotted}
+  .rlg b{color:var(--fg3);font-weight:400}
   .wl-missing{color:var(--warn);border-bottom:1px dashed var(--warn);cursor:help}
   #graphwrap{position:absolute;inset:0}
   #cv{display:block;width:100%;height:100%}
@@ -153,6 +173,7 @@
     <div id="graphwrap" hidden>
       <canvas id="cv"></canvas>
       <div id="legend"></div>
+      <div id="rellegend"></div>
       <div id="ghelp">滚轮缩放 · 拖动平移 · 单击节点打开笔记</div>
     </div>
   </main>
@@ -170,7 +191,7 @@ const topsOf = id => byId[id] ? byId[id].top : null;
 function colorOf(id){ return topColor[topsOf(id)] || '#8b93a5'; }
 
 document.getElementById('statsline').textContent =
-  ` · ${STATS.total} 节点 / ${STATS.concepts} 概念 / ${STATS.links} 链接`;
+  ` · ${STATS.total} 节点 / ${STATS.concepts} 概念 / ${STATS.edges} 条关系边`;
 
 /* ---------------- 目录树 ---------------- */
 const treeEl = document.getElementById('tree');
@@ -249,6 +270,39 @@ let lastId = null;
 
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+function linkTo(id){
+  const t = byId[id];
+  return t ? `<a class="wl" href="#" data-target="${esc(id)}">${esc(t.title)}</a>` : '';
+}
+
+function relationsHtml(n){
+  const groups = new Map();   // rel -> {out:Set, in:Set}
+  DATA.edges.forEach(e => {
+    let g;
+    if (e.source === n.id){ g = groups.get(e.rel) || { out: new Set(), in: new Set() }; g.out.add(e.target); }
+    else if (e.target === n.id){ g = groups.get(e.rel) || { out: new Set(), in: new Set() }; g.in.add(e.source); }
+    else return;
+    groups.set(e.rel, g);
+  });
+  const rows = [];
+  REL_ORDER.forEach(rid => {
+    const g = groups.get(rid);
+    if (!g) return;
+    const r = RELS[rid] || { label: rid, out_label: rid, in_label: rid, color: '#8b93a5', directed: false };
+    const outs = [...g.out].filter(x => byId[x]);
+    const ins = [...g.in].filter(x => byId[x]);
+    if (!outs.length && !ins.length) return;
+    const cells = [];
+    if (outs.length) cells.push(`<div><span class="reldir">${esc(r.out_label)}${r.directed ? ' →' : ''}</span>${outs.map(linkTo).join('、')}</div>`);
+    if (ins.length) cells.push(`<div><span class="reldir">${esc(r.in_label)}${r.directed ? ' ←' : ''}</span>${ins.map(linkTo).join('、')}</div>`);
+    rows.push(`<div class="relrow"><span class="relchip" style="--c:${r.color}">${esc(r.label)}</span>`
+            + `<div class="reltargets">${cells.join('')}</div></div>`);
+  });
+  if (!rows.length) return '';
+  return `<div class="relpanel"><div class="relpanel-title"><span>关系</span>`
+       + `<button class="relbtn" data-focus="1">在图谱里聚焦这个节点</button></div>${rows.join('')}</div>`;
+}
+
 function crumbHtml(n){
   const chain = [];
   let cur = n.id, guard = 0;
@@ -294,12 +348,21 @@ function openNote(id, opts){
     `<h1>${esc(n.title)}</h1>` +
     `<div class="chips">${chips.join('')}</div>` +
     rel +
+    relationsHtml(n) +
     `<div class="body">${n.html}</div>` +
     `<hr><div style="color:var(--fg3);font-size:12px">源文件：<code>${esc(n.file)}</code></div>`;
 
   noteEl.querySelectorAll('a.wl').forEach(a => {
     a.addEventListener('click', e => { e.preventDefault(); openNote(a.dataset.target); });
   });
+  const fbtn = noteEl.querySelector('[data-focus]');
+  if (fbtn) fbtn.addEventListener('click', () => {
+    focusId = id; setFocusMode(true);
+    setView('graph');
+    sim.alpha = Math.max(sim.alpha, .35); sim.start();
+  });
+  focusId = id;
+  _nbCache = { id: null, set: new Set() };
   document.querySelector('main').scrollTop = 0;
   if (!keepView) setView('note');
   renderMath();
@@ -370,6 +433,41 @@ const hidden = new Set();
 let dpr = 1, VW = 800, VH = 600;
 const viewport = { k: 1, x: 0, y: 0 };
 
+/* ---------------- 关系类型（来自 kb.config.yml，由 build.py 注入） ---------------- */
+const RELS = Object.fromEntries((DATA.relations || []).map(r => [r.id, r]));
+const REL_ORDER = (DATA.relations || []).map(r => r.id);
+const TREE_REL = DATA.treeRel || 'parent';
+const hiddenRels = new Set();      // 被关掉的关系类型
+let focusId = null;                // 聚焦的节点（打开笔记时设置）
+let focusMode = false;             // 是否只显示聚焦节点及其邻居
+
+function edgeStyle(rel){
+  const r = RELS[rel] || { color:'#8b93a5', style:'dotted', directed:false, label:rel };
+  const dash = r.style === 'dashed' ? [6,4] : r.style === 'dotted' ? [1.5,3.5] : [];
+  return { color: r.color, dash, directed: !!r.directed, label: r.label, style: r.style };
+}
+function hexA(hex, a){
+  const h = (hex || '#8b93a5').replace('#','');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function nodeFaded(id){
+  if (!focusMode || !focusId) return false;
+  if (id === focusId) return false;
+  return !neighborsOf(focusId).has(id);
+}
+let _nbCache = { id: null, set: new Set() };
+function neighborsOf(id){
+  if (_nbCache.id === id) return _nbCache.set;
+  const s = new Set();
+  DATA.edges.forEach(e => {
+    if (e.source === id) s.add(e.target);
+    else if (e.target === id) s.add(e.source);
+  });
+  _nbCache = { id, set: s };
+  return s;
+}
+
 function resize(){
   const r = graphWrap.getBoundingClientRect();
   dpr = window.devicePixelRatio || 1;
@@ -390,7 +488,8 @@ const G = {
 };
 const gById = Object.fromEntries(G.nodes.map(g => [g.id, g]));
 G.edges = DATA.edges.filter(e => gById[e.source] && gById[e.target]).map(e => ({
-  s: gById[e.source], t: gById[e.target], kind: e.kind
+  s: gById[e.source], t: gById[e.target],
+  rel: e.rel || 'related', tree: !!e.tree,
 }));
 G.edges.forEach(e => { e.s.deg++; e.t.deg++; });
 G.nodes.forEach(g => {
@@ -440,13 +539,13 @@ const sim = {
         q.vx += ux * f; q.vy += uy * f;
       }
     }
-    // 弹簧（树边更硬，链接边更软）
+    // 弹簧（从属边更硬更短，其他关系更软更长）
     G.edges.forEach(e => {
-      if (!e.s.vis() || !e.t.vis()) return;
+      if (!e.s.vis() || !e.t.vis() || hiddenRels.has(e.rel)) return;
       const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
       const d = Math.sqrt(dx * dx + dy * dy) || .01;
-      const rest = e.kind === 'tree' ? 78 : 165;
-      const k = e.kind === 'tree' ? .045 : .012;
+      const rest = e.tree ? 78 : (e.rel === TREE_REL ? 118 : 168);
+      const k = e.tree ? .045 : (e.rel === TREE_REL ? .03 : .012);
       const f = (d - rest) * k;
       const ux = dx / d, uy = dy / d;
       e.s.vx += ux * f; e.s.vy += uy * f;
@@ -474,32 +573,53 @@ const sim = {
     ctx.save();
     ctx.translate(viewport.x, viewport.y);
     ctx.scale(viewport.k, viewport.k);
-    // 边
+    const inv = 1 / Math.max(.4, Math.min(viewport.k, 2.5));
+    // 边：颜色与线型由关系类型决定，有方向的画箭头
     G.edges.forEach(e => {
-      if (!e.s.vis() || !e.t.vis()) return;
+      if (!e.s.vis() || !e.t.vis() || hiddenRels.has(e.rel)) return;
+      const st = edgeStyle(e.rel);
+      const faded = nodeFaded(e.s.id) || nodeFaded(e.t.id);
+      const base = e.tree ? .42 : (e.rel === TREE_REL ? .5 : .6);
       ctx.beginPath();
       ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y);
-      if (e.kind === 'link'){ ctx.strokeStyle = 'rgba(240,163,94,.42)'; ctx.setLineDash([4, 4]); ctx.lineWidth = .9 / viewport.k; }
-      else if (e.kind === 'cross'){ ctx.strokeStyle = 'rgba(196,138,224,.5)'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1 / viewport.k; }
-      else { ctx.strokeStyle = 'rgba(140,152,175,.34)'; ctx.setLineDash([]); ctx.lineWidth = 1.1 / viewport.k; }
+      ctx.strokeStyle = hexA(st.color, faded ? .07 : base);
+      ctx.setLineDash(st.dash.map(v => v * inv));
+      ctx.lineWidth = (e.tree ? 1.2 : (e.rel === TREE_REL ? 1.1 : 1)) * inv;
       ctx.stroke();
+      if (st.directed && !faded){
+        const ang = Math.atan2(e.t.y - e.s.y, e.t.x - e.s.x);
+        const r = (e.t.r + 2) * inv + 4 * inv;
+        const ex = e.t.x - Math.cos(ang) * r, ey = e.t.y - Math.sin(ang) * r;
+        const size = 6.5 * inv;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - Math.cos(ang - .42) * size, ey - Math.sin(ang - .42) * size);
+        ctx.lineTo(ex - Math.cos(ang + .42) * size, ey - Math.sin(ang + .42) * size);
+        ctx.closePath();
+        ctx.fillStyle = hexA(st.color, faded ? .1 : .85);
+        ctx.fill();
+      }
     });
     ctx.setLineDash([]);
     // 节点
     const hover = hoverId ? gById[hoverId] : null;
     G.nodes.forEach(g => {
       if (!g.vis()) return;
+      const faded = nodeFaded(g.id);
       ctx.beginPath();
       ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
       ctx.fillStyle = colorOf(g.id);
-      ctx.globalAlpha = hover && (hover === g) ? 1 : .9;
+      ctx.globalAlpha = faded ? .18 : (hover && hover === g ? 1 : .9);
       ctx.fill();
-      if (g.n.type === 'domain'){
-        ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(255,255,255,.55)';
-        ctx.lineWidth = 1.2 / viewport.k; ctx.stroke();
+      if (g.n.type === 'domain' || g.id === focusId){
+        ctx.globalAlpha = faded ? .18 : 1;
+        ctx.strokeStyle = g.id === focusId ? '#ffffff' : 'rgba(255,255,255,.55)';
+        ctx.lineWidth = (g.id === focusId ? 2 : 1.2) * inv;
+        ctx.stroke();
       }
       ctx.globalAlpha = 1;
-      if (viewport.k > .55 || g.n.type === 'domain' || hover === g){
+      if (!faded && (viewport.k > .55 || g.n.type === 'domain' || hover === g)){
         ctx.font = `${(g.n.type === 'domain' ? 12 : 11) / Math.max(.75, Math.min(viewport.k, 1.4))}px -apple-system,"Microsoft YaHei",sans-serif`;
         ctx.fillStyle = g.n.type === 'domain' ? '#e6e9f0' : '#96a0b4';
         ctx.fillText(g.n.title, g.x + g.r + 3, g.y + 4);
@@ -561,7 +681,7 @@ canvas.addEventListener('click', e => {
   if (g) openNote(g.id);
 });
 
-/* 图例：按顶层领域过滤 */
+/* 图例：上一行按顶层领域过滤，下一行按关系类型过滤 */
 const legendEl = document.getElementById('legend');
 DATA.roots.forEach(r => {
   const n = byId[r];
@@ -576,13 +696,52 @@ DATA.roots.forEach(r => {
   legendEl.appendChild(d);
 });
 
+const relLegendEl = document.getElementById('rellegend');
+const relCount = {};
+DATA.edges.forEach(e => { relCount[e.rel] = (relCount[e.rel] || 0) + 1; });
+REL_ORDER.forEach(rid => {
+  const r = RELS[rid];
+  if (!r || !relCount[rid]) return;
+  const d = document.createElement('div');
+  d.className = 'rlg';
+  d.title = `点击可隐藏/显示「${r.label}」这类关系`;
+  d.innerHTML = `<i class="${esc(r.style)}" style="--c:${r.color}"></i>${esc(r.label)}`
+              + `<b>${relCount[rid]}</b>`;
+  d.onclick = () => {
+    if (hiddenRels.has(rid)) hiddenRels.delete(rid); else hiddenRels.add(rid);
+    d.classList.toggle('off', hiddenRels.has(rid));
+    sim.alpha = Math.max(sim.alpha, .35); sim.start();
+  };
+  relLegendEl.appendChild(d);
+});
+
+const focusCtl = document.createElement('div');
+focusCtl.className = 'rlg ctl off';
+function setFocusMode(on){
+  focusMode = !!on;
+  focusCtl.innerHTML = `聚焦选中节点：${focusMode ? '开' : '关'}`;
+  focusCtl.classList.toggle('off', !focusMode);
+  sim.draw();
+}
+focusCtl.onclick = () => { setFocusMode(!focusMode); if (focusMode) sim.alpha = Math.max(sim.alpha, .3), sim.start(); };
+setFocusMode(false);
+relLegendEl.appendChild(focusCtl);
+
 /* 启动 */
 const params = new URLSearchParams(location.search);
 const wantGraph = params.get('view') === 'graph';
 const first = decodeURIComponent(location.hash.replace(/^#/, ''));
-const startId = (first && byId[first]) ? first : (DATA.roots[0] || null);
-if (startId) openNote(startId, { keepView: wantGraph });
-setView(wantGraph ? 'graph' : 'note');
+const focusParam = params.get('focus') || '';
+const startId = (first && byId[first]) ? first : (focusParam && byId[focusParam] ? focusParam : (DATA.roots[0] || null));
+if (startId) openNote(startId, { keepView: wantGraph || !!focusParam });
+if (focusParam && byId[focusParam]){
+  focusId = focusParam;
+  setFocusMode(true);
+  sim.presettle(280); sim.fit();
+  const g = gById[focusId];       // 把聚焦的节点摆到画布中心
+  if (g){ viewport.x = VW / 2 - g.x * viewport.k; viewport.y = VH / 2 - g.y * viewport.k; sim.draw(); }
+}
+setView(wantGraph || !!focusParam ? 'graph' : 'note');
 window.addEventListener('hashchange', () => {
   const id = decodeURIComponent(location.hash.replace(/^#/, ''));
   if (id && byId[id] && id !== lastId) openNote(id);

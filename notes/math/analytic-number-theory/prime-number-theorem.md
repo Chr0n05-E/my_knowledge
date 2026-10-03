@@ -59,7 +59,7 @@ $$-\frac{\zeta'(s)}{\zeta(s)} = \sum_{n\ge1} \frac{\Lambda(n)}{n^s},$$
 
 - 属于：[[math/analytic-number-theory|解析数论]]
 - 依赖：$\zeta$ 函数与欧拉乘积、复分析（留数定理、Perron 公式）、Abel 求和
-- 同类手法：[[engineering/computer-science/algorithms/binary-search|二分查找]] 里的"信息论下界"式论证——都是先给一个不可逾越的界，再构造达到它的方法
+- 对比：[[engineering/computer-science/algorithms/binary-search|二分查找]] 里的"信息论下界"式论证——一个给出不可逾越的界，一个构造达到它的方法，思路同源但方向相反
 
 ## 未解决的问题
 

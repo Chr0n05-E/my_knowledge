@@ -38,9 +38,111 @@ ROOT = Path(__file__).resolve().parent.parent
 NOTES_DIR = ROOT / "notes"
 OUT_DIR = ROOT / "out"
 VIEWER_TEMPLATE = ROOT / "tools" / "viewer" / "index.html"
+CONFIG_PATH = ROOT / "kb.config.yml"
 
-# 叶子笔记（type: concept）必须出现的章节。想放松就把列表改空。
-REQUIRED_SECTIONS = ["我的理解"]
+# 配置文件缺失/损坏时的兜底（正常情况请在 kb.config.yml 里改）
+DEFAULT_CONFIG: dict = {
+    "relations": [
+        {"id": "parent", "label": "从属", "out_label": "上级", "in_label": "下级",
+         "color": "#8c98af", "style": "solid", "directed": True, "tree": True,
+         "aliases": ["属于", "父", "上级", "part_of"]},
+        {"id": "prerequisite", "label": "前置依赖", "out_label": "前置", "in_label": "被用于",
+         "color": "#f0a35e", "style": "dashed", "directed": True,
+         "aliases": ["前置", "依赖", "先修", "prerequisite", "requires"]},
+        {"id": "extends", "label": "推广 / 特例", "out_label": "推广自", "in_label": "特例",
+         "color": "#5ec48a", "style": "dashed", "directed": True,
+         "aliases": ["推广", "特例", "泛化", "extends"]},
+        {"id": "applies_to", "label": "应用于", "out_label": "应用于", "in_label": "被应用于",
+         "color": "#6aa6ff", "style": "dashed", "directed": True,
+         "aliases": ["应用", "应用于", "用于", "applies_to"]},
+        {"id": "cites", "label": "引用", "out_label": "引用", "in_label": "被引用",
+         "color": "#c48ae0", "style": "dotted", "directed": True,
+         "aliases": ["引用", "参考", "出处", "cites"]},
+        {"id": "contrast", "label": "对比 / 易混", "out_label": "对比", "in_label": "对比",
+         "color": "#e0708a", "style": "dotted", "directed": False,
+         "aliases": ["对比", "易混", "区别", "contrast"]},
+        {"id": "related", "label": "相关", "out_label": "相关", "in_label": "相关",
+         "color": "#8b93a5", "style": "dotted", "directed": False,
+         "aliases": ["相关", "参见", "另见", "related"]},
+    ],
+    "required_sections": ["我的理解"],
+    "output_html": "out/index.html",
+    "tree_sort": "title",
+}
+
+REL_STYLE_DEFAULT = "dashed"
+_UNKNOWN_REL_LABELS: dict[str, int] = {}   # 正文里出现但配置里没定义的标签 -> 次数
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """读取 kb.config.yml（缺了就用内置默认值，不报错）。"""
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG))   # 深拷贝
+    if not path.exists():
+        return cfg
+    raw = path.read_text(encoding="utf-8")
+    data = None
+    try:
+        import yaml  # type: ignore
+        data = yaml.safe_load(raw)
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        data = mini_yaml(raw)
+    if not isinstance(data, dict):
+        print(f"{C_WARN}警告{C_RESET} {path.name} 解析失败，改用内置默认配置")
+        return cfg
+
+    rels = data.get("relations")
+    if isinstance(rels, list) and rels:
+        clean = []
+        for r in rels:
+            if not isinstance(r, dict) or not r.get("id"):
+                continue
+            rid = str(r["id"]).strip()
+            clean.append({
+                "id": rid,
+                "label": str(r.get("label") or rid),
+                "out_label": str(r.get("out_label") or r.get("label") or rid),
+                "in_label": str(r.get("in_label") or r.get("label") or rid),
+                "color": str(r.get("color") or "#8b93a5"),
+                "style": str(r.get("style") or REL_STYLE_DEFAULT),
+                "directed": bool(r.get("directed", True)),
+                "tree": bool(r.get("tree", False)),
+                "aliases": [str(a) for a in (r.get("aliases") or [])],
+            })
+        if clean:
+            cfg["relations"] = clean
+    for k in ("required_sections",):
+        if isinstance(data.get(k), list):
+            cfg[k] = [str(x) for x in data[k]]
+    for k in ("output_html", "tree_sort"):
+        if isinstance(data.get(k), str) and data[k].strip():
+            cfg[k] = data[k].strip()
+    return cfg
+
+
+CFG = load_config()
+RELATIONS: list = CFG["relations"]
+REL_BY_ID: dict = {r["id"]: r for r in RELATIONS}
+TREE_REL: str = next((r["id"] for r in RELATIONS if r.get("tree")), "parent")
+DEFAULT_REL: str = "related" if "related" in REL_BY_ID else RELATIONS[-1]["id"]
+
+
+def rel_lookup() -> dict:
+    """把一个标签（中文/英文/id/别名）映射到关系 id。"""
+    m: dict[str, str] = {}
+    for r in RELATIONS:
+        for key in (r["id"], r["label"], r.get("out_label", ""), r.get("in_label", ""), *r.get("aliases", [])):
+            k = str(key).strip().lower()
+            if k:
+                m.setdefault(k, r["id"])
+    return m
+
+
+REL_LOOKUP = rel_lookup()
+
+# 叶子笔记（type: concept）必须出现的章节。想放松就在 kb.config.yml 里改。
+REQUIRED_SECTIONS: list = CFG["required_sections"]
 
 ASSET_DIR = OUT_DIR / "assets"
 
@@ -50,6 +152,10 @@ LINK_RE_NO_IMG = re.compile(r"(?<!!)\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]")   # 排�
 H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)
 IMG_MD_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
 IMG_WIKI_RE = re.compile(r"!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
+# 正文里形如「- 前置：[[某个概念]]」的行 —— 用来给双链标上关系类型。
+# 标签只允许中文/字母/空格/下划线/短横线，且不超过 12 字，避免把普通句子误判成关系行。
+BODY_REL_RE = re.compile(
+    r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z _\-/]{0,11}?)\s*[:：]\s*(.+)$")
 IMG_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif"}
 _IMG_INDEX: dict[str, Path] | None = None
 
@@ -337,9 +443,52 @@ def load_nodes(warnings: list[str]) -> dict:
         if m and m.group(1).strip() == title:
             body_clean = body[:m.start()] + body[m.end():]
 
-        sections = [s.strip() for s in re.findall(r"^#{2,3}\s+(.+?)\s*$", body, re.M)]
+        # 解析用的文本要先把代码块与行内代码去掉：
+        # 否则文档里"举例怎么写双链"的那行会被当成真的链接，凭空多出一条边
+        body_scan = re.sub(r"```.*?```", " ", body_clean, flags=re.S)
+        body_scan = re.sub(r"`[^`\n]*`", " ", body_scan)
+
+        sections = [s.strip() for s in re.findall(r"^#{2,3}\s+(.+?)\s*$", body_scan, re.M)]
         ntype = str(fm.get("type") or ("domain" if "." not in rel.name else "concept")).strip()
-        links_raw = [(t.strip(), (d or t).strip()) for t, d in LINK_RE_NO_IMG.findall(body)]
+        links_raw = [(t.strip(), (d or t).strip()) for t, d in LINK_RE_NO_IMG.findall(body_scan)]
+
+        # ① frontmatter 里显式写的关系：
+        #    relations:
+        #      前置依赖: [math/algebra, 群论]
+        fm_rels: list[tuple[str, str]] = []
+        fm_rel_block = fm.get("relations")
+        if isinstance(fm_rel_block, dict):
+            for k, v in fm_rel_block.items():
+                rid = REL_LOOKUP.get(str(k).strip().lower())
+                if not rid:
+                    _UNKNOWN_REL_LABELS[str(k)] = _UNKNOWN_REL_LABELS.get(str(k), 0) + 1
+                    rid = DEFAULT_REL
+                for t in as_list(v):
+                    fm_rels.append((rid, t))
+        elif isinstance(fm_rel_block, list):   # 只写目标、不写类型时一律算"相关"
+            for t in as_list(fm_rel_block):
+                fm_rels.append((DEFAULT_REL, t))
+
+        # ② 正文里形如「- 前置：[[群论]]」「对比：[[偏锋]]」的行
+        body_rels: list[tuple[str, str]] = []
+        for line in body_scan.splitlines():
+            m2 = BODY_REL_RE.match(line)
+            if not m2:
+                continue
+            label = m2.group(1).strip()
+            targets = [t.strip() for t, _d in LINK_RE_NO_IMG.findall(m2.group(2))]
+            if not targets:
+                continue
+            rid = REL_LOOKUP.get(label.lower())
+            if not rid:
+                # 只在这一行"除了双链几乎没别的内容"时提醒，避免把正文里的普通句子误判成关系声明
+                bare = re.sub(r"[\s，。、；：:;,.\-—（）()\[\]「」\"'`*]", "",
+                              LINK_RE_NO_IMG.sub("", m2.group(2)))
+                if len(bare) <= 8:
+                    _UNKNOWN_REL_LABELS[label] = _UNKNOWN_REL_LABELS.get(label, 0) + 1
+                continue
+            for t in targets:
+                body_rels.append((rid, t))
 
         nodes[nid] = {
             "id": nid,
@@ -351,6 +500,8 @@ def load_nodes(warnings: list[str]) -> dict:
             "created": str(fm.get("created") or ""),
             "updated": str(fm.get("updated") or ""),
             "fm_parents": as_list(fm.get("parents")),
+            "fm_rels": fm_rels,
+            "body_rels": body_rels,
             "path_parent": nid.rsplit("/", 1)[0] if "/" in nid else None,
             "sections": sections,
             "body_md": body_clean.lstrip("\n"),
@@ -413,7 +564,7 @@ def validate(nodes: dict, index: dict, resolve, warnings: list[str], errors: lis
         if not n["body_md"].strip():
             warnings.append(f"{nid}: 正文是空的")
 
-        # 出链
+        # 出链 + 类型化关系
         n["links"] = []
         for target, _disp in n["links_raw"]:
             r = resolve(target)
@@ -422,6 +573,23 @@ def validate(nodes: dict, index: dict, resolve, warnings: list[str], errors: lis
             elif not r:
                 warnings.append(f"{nid}: 链接 [[{target}]] 指向不存在的节点（先建空笔记也算）")
         n["links"] = sorted(set(n["links"]))
+
+        n["rels"] = []           # [(关系id, 目标id)]
+        for rid, raw in n["fm_rels"] + n["body_rels"]:
+            r = resolve(raw)
+            if r and r != nid:
+                n["rels"].append((rid, r))
+            elif not r:
+                rel_name = REL_BY_ID.get(rid, {}).get("label", rid)
+                warnings.append(f"{nid}: 关系「{rel_name}」指向不存在的节点「{raw}」")
+        # 没被标注过的双链，统一算作「相关」
+        for r in n["links"]:
+            if any(r == t for _rid, t in n["rels"]):
+                continue
+            n["rels"].append((DEFAULT_REL, r))
+        # 去重（同一个 关系+目标 只留一条），并保持配置里的顺序
+        order = {r["id"]: i for i, r in enumerate(RELATIONS)}
+        n["rels"] = sorted(set(n["rels"]), key=lambda x: (order.get(x[0], 99), x[1]))
 
     # 环检测
     state: dict[str, int] = {}
@@ -461,8 +629,17 @@ def build_tree(nodes: dict) -> list:
         p = n["primary_parent"]
         if p:
             children.setdefault(p, []).append(nid)
+    sort_key = CFG.get("tree_sort", "title")
+    if sort_key == "created":
+        key = lambda x: (nodes[x]["created"], nodes[x]["title"])
+    elif sort_key == "updated":
+        key = lambda x: (nodes[x]["updated"], nodes[x]["title"])
+    elif sort_key == "id":
+        key = lambda x: x
+    else:
+        key = lambda x: nodes[x]["title"]
     for lst in children.values():
-        lst.sort(key=lambda x: nodes[x]["title"])
+        lst.sort(key=key)
     return children
 
 
@@ -525,6 +702,7 @@ def build_payload(nodes: dict, children: dict, resolve, warnings: list[str]) -> 
             "top": top_of(nid),
             "children": children.get(nid, []),
             "links": n["links"],
+            "rels": [{"rel": rid, "target": t} for rid, t in n["rels"]],
             "sections": n["sections"],
             "html": body_html,
             "excerpt": plain_text(n["body_md"])[:180],
@@ -532,25 +710,47 @@ def build_payload(nodes: dict, children: dict, resolve, warnings: list[str]) -> 
         })
 
     edges = []
+    seen_edges: set[tuple[str, str, str]] = set()
+    tree_pairs: set[frozenset] = set()
+
+    def add_edge(src: str, dst: str, rid: str, **extra):
+        key = (src, dst, rid)
+        if key in seen_edges or src == dst:
+            return
+        seen_edges.add(key)
+        edges.append({"source": src, "target": dst, "rel": rid, **extra})
+
     for n in out_nodes:
         for p in n["parents"]:
             if p in nodes:
-                edges.append({"source": n["id"], "target": p,
-                              "kind": "tree" if p == n["primaryParent"] else "cross"})
-        for l in n["links"]:
-            edges.append({"source": n["id"], "target": l, "kind": "link"})
+                # 从属关系：source=子节点，target=父节点（箭头的含义是"它的上级是…"）
+                add_edge(n["id"], p, TREE_REL, tree=(p == n["primaryParent"]))
+                tree_pairs.add(frozenset((n["id"], p)))
+    for n in out_nodes:
+        for r in n["rels"]:
+            # 领域笔记里的「地图」列表会把子节点再列一遍，和从属边重复，这里去掉
+            if r["rel"] == DEFAULT_REL and frozenset((n["id"], r["target"])) in tree_pairs:
+                continue
+            add_edge(n["id"], r["target"], r["rel"])
 
     tops = sorted(top_level, key=lambda x: nodes[x]["title"])
+    rel_counts = {r["id"]: 0 for r in RELATIONS}
+    for e in edges:
+        rel_counts[e["rel"]] = rel_counts.get(e["rel"], 0) + 1
     return {
         "generatedAt": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "roots": [r for r in tops],
         "nodes": out_nodes,
         "edges": edges,
+        "relations": RELATIONS,
+        "treeRel": TREE_REL,
         "stats": {
             "total": len(out_nodes),
             "concepts": sum(1 for n in out_nodes if n["type"] == "concept"),
             "domains": sum(1 for n in out_nodes if n["type"] == "domain"),
-            "links": sum(1 for e in edges if e["kind"] == "link"),
+            "links": sum(1 for e in edges if e["rel"] != TREE_REL),
+            "edges": len(edges),
+            "byRel": rel_counts,
         },
     }
 
@@ -586,15 +786,34 @@ def main() -> int:
         html = (tpl.replace("__KB_DATA__", data)
                    .replace("__KB_BUILT__", payload["generatedAt"])
                    .replace("__KB_STATS__", json.dumps(payload["stats"], ensure_ascii=False)))
-        (OUT_DIR / "graph.html").write_text(html, encoding="utf-8")
+        html_path = (ROOT / CFG["output_html"]).resolve()
+        if ROOT not in html_path.parents:
+            errors.append(f"配置里的 output_html 必须在知识库目录内：{CFG['output_html']}")
+            html_path = OUT_DIR / "index.html"
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.write_text(html, encoding="utf-8")
+
+        # 老版本产物叫 graph.html，留着会让人搞不清该打开哪个；确认路径无误后清掉
+        stale = (OUT_DIR / "graph.html").resolve()
+        if stale != html_path and stale.is_file() and stale.parent == OUT_DIR.resolve():
+            stale.unlink()
 
     # ---- 报告 ----
     print(f"{C_HEAD}知识库构建报告{C_RESET}  {datetime.now():%Y-%m-%d %H:%M}")
     print(f"  节点 {len(nodes)} 个（领域 {payload['stats']['domains']} / 概念 {payload['stats']['concepts']}）"
-          f"，链接边 {payload['stats']['links']} 条")
+          f"，关系边 {payload['stats']['edges']} 条")
+    by_rel = payload["stats"]["byRel"]
+    rel_bits = "、".join(f"{REL_BY_ID[rid]['label']} {cnt}"
+                        for rid, cnt in by_rel.items() if cnt and rid in REL_BY_ID)
+    if rel_bits:
+        print(f"  关系分布：{rel_bits}")
     print(f"  输出：{(OUT_DIR / 'KNOWLEDGE-MAP.md').relative_to(ROOT)}")
     print(f"        {(OUT_DIR / 'graph.json').relative_to(ROOT)}")
-    print(f"        {(OUT_DIR / 'graph.html').relative_to(ROOT)}")
+    if not errors:
+        print(f"        {html_path.relative_to(ROOT)}   ← 用浏览器打开这个")
+    for label, cnt in sorted(_UNKNOWN_REL_LABELS.items(), key=lambda x: -x[1]):
+        print(f"  {C_DIM}提示{C_RESET} 正文里的关系标签「{label}」没在 kb.config.yml 里定义"
+              f"（{cnt} 次，已按「{REL_BY_ID[DEFAULT_REL]['label']}」处理）")
     for w in warnings:
         print(f"  {C_WARN}警告{C_RESET} {w}")
     for e in errors:
@@ -604,8 +823,8 @@ def main() -> int:
     else:
         print(f"  {C_DIM}（警告 {len(warnings)}，错误 {len(errors)}）{C_RESET}")
 
-    if args.open and (OUT_DIR / "graph.html").exists():
-        webbrowser.open((OUT_DIR / "graph.html").as_uri())
+    if args.open and not errors and html_path.exists():
+        webbrowser.open(html_path.as_uri())
     if errors or (args.strict and warnings):
         return 1
     return 0

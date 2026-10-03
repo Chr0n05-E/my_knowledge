@@ -28,7 +28,7 @@
 |---|---|---|
 | **数据层** | 一个 `notes/` 目录里的纯 Markdown 文件 | 不锁定任何软件。任何编辑器、任何脚本、十年后都能读。这一层必须是你自己的。 |
 | **结构层** | 每个文件顶部的 YAML frontmatter + 双链 | 「层级」和「关联」被显式写出来，而不是藏在某个软件的数据库里。 |
-| **视图层** | `out/graph.html`（可交互）、`out/KNOWLEDGE-MAP.md`（大纲/思维导图）、`out/graph.json`（给别的工具） | 视图是可再生的产物，随时可以删掉重建，也可以换成别的工具。 |
+| **视图层** | `out/index.html`（单文件可交互网页）、`out/KNOWLEDGE-MAP.md`（大纲/思维导图）、`out/graph.json`（给别的工具） | 视图是可再生的产物，随时可以删掉重建，也可以换成别的工具。 |
 
 这样做的直接好处：
 
@@ -50,6 +50,7 @@ E:\Knowledge\
 │  │        └─ .../algorithms/binary-search.md    ← 叶子：你自己的理解
 │  ├─ math.md  math/algebra.md  math/algebra/linear-algebra.md
 │  ├─ science.md  literature.md  aesthetics.md
+├─ kb.config.yml                 ← 关系类型的定义（加一种新关系只改这里）+ 校验规则
 ├─ templates/                      ← 新建笔记用的两个模板
 │  ├─ concept.md                   叶子概念笔记模板
 │  └─ domain.md                    分支/领域节点模板
@@ -59,9 +60,9 @@ E:\Knowledge\
 │  ├─ make_sample_figure.py        生成示例插图（演示图片管线）
 │  └─ viewer/index.html            图谱查看器模板（build.py 把数据塞进去）
 └─ out/                            构建产物，可以随时删（已 gitignore）
-   ├─ graph.html                   ★ 双击打开：左侧折叠树 + 右侧正文 + 全局力导向图
+   ├─ index.html                   ★ 双击打开：左侧折叠树 + 右侧正文 + 全局力导向图
    ├─ KNOWLEDGE-MAP.md             缩进大纲，可直接喂给 markmap / Markmind
-   └─ graph.json                   节点+边，给别的工具用
+   └─ graph.json                   节点 + 关系边，给别的工具用
 ```
 
 ---
@@ -117,7 +118,36 @@ updated: 2026-02-14
 - `title` 重复时脚本会警告（双链解析会歧义）。
 - 想换语言/换分类体系都随便，脚本不关心 id 里的词是什么，只关心路径存在。
 
-### 4.2 双链与图片
+### 4.2 关系的类型：从属 + 其他各种关系
+
+**这是本系统最核心的约定。** 关系只有两种写法，都写在笔记里：
+
+**写法一：frontmatter 的 `relations` 段**（一次声明一批，机器最稳）
+
+```yaml
+relations:
+  前置依赖: [math/algebra]                       # 键名可以是中文标签、英文 id 或别名
+  contrast: [aesthetics/calligraphy/zhongfeng]
+  引用: [math/analytic-number-theory]
+```
+
+**写法二：正文里以「标签：」开头的行**（在 Obsidian 里读起来最自然）
+
+```markdown
+- 前置：[[math/algebra|线性代数]]
+- 对比：[[aesthetics/calligraphy/zhongfeng|中锋]] 一侧受力不对称、信息量更低
+- 推广自：[[math/analytic-number-theory/prime-number-theorem|素数定理]]
+```
+
+规则：
+
+- **标签就是关系类型名**，中英文都行：`前置`/`prerequisite`、`对比`/`contrast`、`推广`/`extends`、`应用于`、`引用`、`相关`、`属于`/`交叉归属`（从属）。完整清单与别名见 [kb.config.yml](kb.config.yml)——**要加一种新关系（比如「推导自」「反例」「等价」），只需在那里加一条**，脚本、图例、颜色、箭头方向会自动跟上。
+- **没写标签的双链**（例如领域笔记「地图」里列的 `[[子节点]]`）自动算作**「相关」**，所以不标也能用，只是渲染成灰色点线。
+- **从属关系不用手写**：它由文件路径自动决定（`notes/math/algebra.md` 是 `notes/math/algebra/linear-algebra.md` 的上级）。只有当一个概念要挂到**第二个父节点**下时，才需要 frontmatter 的 `parents` 或正文的 `交叉归属：`。
+- 每种关系在网页上有自己的颜色、线型（实线/虚线/点线）与方向箭头，图谱底部可一键开关。
+- 关系指向不存在的节点 → 警告；标签没在配置里定义 → 提示（并按「相关」处理）。
+
+### 4.3 双链与图片
 
 在正文里写 `[[math/algebra|代数]]` 或 `[[群论]]`（先按 id 精确匹配，再按 title / 别名匹配）。
 找不到目标时脚本会警告，图谱里显示为黄色虚线的「悬空链接」——这正是你该去补的洞。
@@ -131,9 +161,9 @@ updated: 2026-02-14
 
 找不到的图片会出现在构建报告的警告里。示例：`notes/aesthetics/calligraphy/zhongfeng.md` 里那张墨量示意图，就是由 `tools/make_sample_figure.py` 用 numpy+Pillow 画出来的（书法这类学科没有图基本没法写）。
 
-### 4.3 叶子笔记的章节
+### 4.4 叶子笔记的章节
 
-`type: concept` 的笔记必须包含 **`## 我的理解`**（可用 `REQUIRED_SECTIONS` 改）。
+`type: concept` 的笔记必须包含 **`## 我的理解`**（在 `kb.config.yml` 的 `required_sections` 里改）。
 模板默认给的结构：
 
 | 章节 | 回答的问题 | 为什么需要 |
@@ -151,13 +181,14 @@ updated: 2026-02-14
 
 ## 5. 三个视图怎么用
 
-**`out/graph.html`（主力）** —— 双击打开，单文件、数据全内嵌、不用服务器：
+**`out/index.html`（主力）** —— 双击打开，单文件、数据全内嵌、不用服务器，也可以直接丢到任意静态托管（GitHub Pages 等）当网页：
 
-- 左侧是可折叠的层级树（这就是「思维导图」的阅读形态）；
-- 右侧是笔记正文，公式用 KaTeX 渲染（需联网加载 CDN；断网时公式显示为原始 LaTeX，不影响阅读）；
-- 顶栏切到「图谱」是全局力导向图：灰实线=层级、紫虚线=多父挂载、橙虚线=双链关联；底部图例可按顶层领域筛选；滚轮缩放、拖动平移、单击节点跳转；
+- 左侧是可折叠的层级树（「思维导图」的阅读形态）；右侧是笔记正文，公式用 KaTeX 渲染（需联网加载 CDN，断网时显示原始 LaTeX，不影响阅读）；
+- 笔记正文上方有**「关系」面板**：按关系类型分组列出它的上位/下位/前置/对比/……，每个都是一跳链接，右上角有「在图谱里聚焦这个节点」；
+- 顶栏切到「图谱」是全局力导向图：**线的颜色与线型 = 关系类型，箭头 = 方向**；底部两行图例分别按「顶层领域」和「关系类型」筛选；滚轮缩放、拖动平移、单击节点跳转；「聚焦选中节点」打开后只高亮当前节点的邻居（其余变暗）；
 - 搜索框支持标题/id/标签/别名/正文全文（按 `/` 聚焦，`Esc` 清空）；
-- URL 带 `#节点id`，可以直接分享/收藏某个知识点的位置；`?view=graph` 可让它打开时直接进入图谱视图（例如 `graph.html?view=graph#math/algebra`）。
+- URL 参数：`#节点id` 直接定位某个知识点；`?view=graph` 打开即进图谱；`?focus=节点id` 打开即进图谱并聚焦该节点及其邻居。例如：
+  `index.html?focus=math/analytic-number-theory/riemann-hypothesis`
 
 **`out/KNOWLEDGE-MAP.md`（思维导图）** —— 纯缩进大纲。三种用法：
 
@@ -168,7 +199,7 @@ updated: 2026-02-14
    ```
 3. Obsidian 装 Markmind / Enhancing Mindmap 插件后直接打开；任何支持 Markdown 大纲的工具（幕布、Xmind 导入、Freeplane 的 Markdown 导入）也能吃。
 
-**`out/graph.json`（给程序）** —— `nodes` 带 frontmatter 字段与渲染好的 HTML，`edges` 带 `kind`（`tree` / `cross` / `link`）。想接 Cytoscape.js / G6 / Neo4j / Gephi 都是几十行的事。
+**`out/graph.json`（给程序）** —— `nodes` 带 frontmatter 字段与渲染好的 HTML；`edges` 带 `rel`（关系类型 id）、`tree`（是否决定目录树形状）；另有 `relations`（关系类型定义）。想接 Cytoscape.js / G6 / Neo4j / Gephi 都是几十行的事。
 
 ---
 
@@ -247,6 +278,9 @@ git add -A ; git commit -m "初始化知识库骨架"
 
 ## 10. 常见问题
 
+**Q：我想加一种新的关系（比如「推导自」「反例」「等价」）怎么办？**
+改 [kb.config.yml](kb.config.yml) 的 `relations` 加一条（id / label / 颜色 / 线型 / 是否有方向 / 别名），然后 `build.py`。不用碰脚本和网页模板——图例、颜色、箭头都会自动出现。
+
 **Q：`build.py` 报「父节点没有对应笔记」怎么办？**
 在 `notes/` 下建一个空的分支笔记（`python tools\new.py <父id> --title <名字> --domain`）即可。领域节点可以很短，它的价值在于当子节点的归属点。
 
@@ -255,6 +289,13 @@ git add -A ; git commit -m "初始化知识库骨架"
 
 **Q：目录结构能改吗？**
 能。只要 `id` 与文件路径一致，随便重命名目录（改完跑一次 `build.py`，双链会按 title/别名兜底解析）。
+
+**Q：在 Obsidian 里打开这个目录要注意什么？**
+把 `E:\Knowledge` 直接作为 vault 打开即可（笔记是纯 Markdown + frontmatter，Obsidian 原生认）。
+- 建议在 Obsidian 的「设置 → 文件与链接」里把**新链接格式设为 Wiki 链接**，这样你手打的 `[[标题]]` 与脚本解析一致；
+- `out/`、`tools/`、`docs/`、`templates/` 可以在 Obsidian 设置里排除，免得图谱视图里多出一堆构建产物；
+- `kb.config.yml` 里的关系标签（前置/对比/…）在 Obsidian 里就是**属性名或正文文本**，不需要装插件即可读写；
+- 想要 Obsidian 内部的动态目录页，装 Dataview，在领域笔记里写 `LIST FROM "notes" WHERE contains(parents, this.id)`。
 
 **Q：想加「书籍」「论文」这类节点？**
 加一种 `type: book`，在 `templates/` 里加模板，在 `tools/new.py` 的 choices 里加上它，并在 `build.py` 里决定它在图谱里的颜色/形状。结构层是你的，脚本只是执行者。

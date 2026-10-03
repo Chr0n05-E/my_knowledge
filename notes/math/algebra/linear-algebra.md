@@ -50,7 +50,7 @@ $$T(\alpha u + \beta v) = \alpha T(u) + \beta T(v), \quad \forall \alpha,\beta \
 
 - 属于：[[math/algebra|代数]]
 - 交叉归属：[[engineering/computer-science|计算机科学]]（图形学变换、机器学习、优化、数值计算）
-- 支撑：[[math/algebra/linear-algebra|本笔记]] → 微积分（雅可比矩阵）→ 微分几何（切映射）
+- 推广自：向量空间与线性映射 → 微积分（雅可比矩阵）→ 微分几何（切映射）
 - 对比：[[math/analytic-number-theory|解析数论]] 用的也是"把离散对象变成解析对象"的手法，但换成复分析工具
 
 ## 未解决的问题

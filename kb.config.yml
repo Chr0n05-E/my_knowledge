@@ -1,0 +1,87 @@
+# 知识库配置 —— 关系类型与校验规则都在这里改，不用碰脚本
+#
+# 每条关系会在 HTML 里渲染成一种颜色的线（虚线/点线由 style 决定）：
+#   id          内部标识（别改，frontmatter 与正文标签都解析到它）
+#   label       图例与「关系」面板上显示的名字
+#   out_label   本文 → 对方 时的叫法（例：本文的"上级"）
+#   in_label    对方 → 本文 时的叫法（例：本文的"下级"）
+#   color       线色
+#   style       solid | dashed | dotted
+#   directed    是否有方向（有方向就画箭头）
+#   tree        是否决定左侧目录树的形状（只能有一条为 true）
+#   aliases     正文里可以怎么写这个关系（中英文都行）
+
+relations:
+  - id: parent
+    label: 从属
+    out_label: 上级
+    in_label: 下级
+    color: "#8c98af"
+    style: solid
+    directed: true
+    tree: true
+    aliases: [属于, 父, 上级, 属于该领域, 交叉归属, 也属于, part_of, parent]
+
+  - id: prerequisite
+    label: 前置依赖
+    out_label: 前置
+    in_label: 被用于
+    color: "#f0a35e"
+    style: dashed
+    directed: true
+    aliases: [前置, 依赖, 先修, 需要先掌握, prereq, prerequisite, requires]
+
+  - id: extends
+    label: 推广 / 特例
+    out_label: 推广自
+    in_label: 特例
+    color: "#5ec48a"
+    style: dashed
+    directed: true
+    aliases: [推广, 特例, 推广自, 泛化, 特化, extends, generalizes]
+
+  - id: applies_to
+    label: 应用于
+    out_label: 应用于
+    in_label: 被应用于
+    color: "#6aa6ff"
+    style: dashed
+    directed: true
+    aliases: [应用, 应用于, 用于, applies_to]
+
+  - id: cites
+    label: 引用
+    out_label: 引用
+    in_label: 被引用
+    color: "#c48ae0"
+    style: dotted
+    directed: true
+    aliases: [引用, 参考, 出处, 依据, cites, ref]
+
+  - id: contrast
+    label: 对比 / 易混
+    out_label: 对比
+    in_label: 对比
+    color: "#e0708a"
+    style: dotted
+    directed: false
+    aliases: [对比, 易混, 区别, 反例, vs, contrast]
+
+  - id: related
+    label: 相关
+    out_label: 相关
+    in_label: 相关
+    color: "#8b93a5"
+    style: dotted
+    directed: false
+    aliases: [相关, 参见, 另见, related, see_also]
+
+# 叶子笔记（type: concept）必须出现的章节，缺了就报警告
+required_sections:
+  - 我的理解
+
+# 渲染出来的 HTML 路径（写成 index.html 是为了能直接丢到 GitHub Pages 之类的静态托管上）
+output_html: out/index.html
+
+# 目录树的排序：title | created | updated | id
+tree_sort: title

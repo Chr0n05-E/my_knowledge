@@ -19,7 +19,8 @@ updated: 2026-02-14
 ## 地图
 
 - [[math/analytic-number-theory/prime-number-theorem|素数定理]]
-- 待写：$\zeta$ 函数的解析延拓、黎曼假设、圆法
+- [[math/analytic-number-theory/riemann-hypothesis|黎曼假设]]
+- 待写：$\zeta$ 函数的解析延拓、圆法
 
 ## 我在这里的进度
 
