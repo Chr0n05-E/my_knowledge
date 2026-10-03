@@ -1,0 +1,15 @@
+# 构建产物（可随时由 tools/build.py 重新生成）
+/out/
+
+# 编辑器 / 系统
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.trash/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc
+.venv/
