@@ -2,8 +2,8 @@
 /out/
 
 # 编辑器 / 系统
-.obsidian/workspace.json
-.obsidian/workspace-mobile.json
+# Obsidian 的库配置：任意层级都忽略（想跨机同步插件/快捷键时可改成逐文件忽略）
+.obsidian/
 .trash/
 .DS_Store
 Thumbs.db
