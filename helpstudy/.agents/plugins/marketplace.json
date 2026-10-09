@@ -1,0 +1,10 @@
+{
+  "name": "helpstudy-marketplace",
+  "interface": { "displayName": "个人学习搭档" },
+  "plugins": [
+    {
+      "name": "helpstudy",
+      "source": { "source": "local", "path": "./plugin" }
+    }
+  ]
+}
