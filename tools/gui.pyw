@@ -364,7 +364,17 @@ class App(tk.Tk):
         iid = sel[0]
         return iid if any(it["id"] == iid for it in self.notes) else None
 
-    def _tree_open(self, _event=None) -> None:
+    def _tree_open(self, event=None) -> None:
+        """双击：点在 +/− 上只做展开/收起，不打开笔记；点在文字上才打开。"""
+        if event is not None:
+            try:
+                element = str(self.tree.identify("element", event.x, event.y))
+            except tk.TclError:
+                element = ""
+            if "indicator" in element:
+                # 第一次按下时 Tk 自己已经切换过一次；这里什么都不做，
+                # 否则"按下切一次 + 双击再切一次"会互相抵消，看起来像没反应
+                return
         nid = self._selected_id()
         if nid:
             self.open_obsidian(nid)
@@ -500,7 +510,10 @@ class GraphView(ttk.Frame):
         self._items: dict[int, str] = {}
         self.selected: str | None = None
         self.focus_id: str | None = None
-        self.scale = 1.0
+        self.k = 1.0                 # 缩放
+        self.tx = 0.0                # 平移：屏幕坐标 = 布局坐标 × k + (tx, ty)
+        self.ty = 0.0
+        self._needs_fit = True
         self._panning = False
         self._last = (0, 0)
         self._build_ui()
@@ -531,6 +544,7 @@ class GraphView(ttk.Frame):
         self.canvas.bind("<Button-3>", self._on_right)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<MouseWheel>", self._on_wheel)
+        self.canvas.bind("<Configure>", self._on_resize)
 
         self.info = ttk.Label(self, anchor="w", padding=(8, 1),
                               text="右键点节点 = 新建分支 / 概念　·　拖动空白处平移　·　滚轮缩放")
@@ -598,9 +612,16 @@ class GraphView(ttk.Frame):
             self.pos = {nid: (60.0 + ycache[nid] * 150.0, 40.0 + depth.get(nid, 0) * 86.0)
                         for nid in self.by_id}
         self.redraw()
+        self._needs_fit = True
         self.fit()
 
-    # ---------------- 绘制
+    # ---------------- 绘制（视图变换：屏幕坐标 = 布局坐标 × k + (tx, ty)）
+    def _sx(self, x: float) -> float:
+        return x * self.k + self.tx
+
+    def _sy(self, y: float) -> float:
+        return y * self.k + self.ty
+
     def redraw(self) -> None:
         c = self.canvas
         c.delete("all")
@@ -610,6 +631,7 @@ class GraphView(ttk.Frame):
                           text="还没有图谱数据。先去「笔记」页点【构建 / 体检】。")
             self._update_legend()
             return
+        k = self.k
         vis = set(self.by_id)
         if self.focus_id and self.v_focus.get():
             vis = {self.focus_id}
@@ -627,19 +649,23 @@ class GraphView(ttk.Frame):
             r = self.rel_by_id.get(e["rel"], {})
             style = r.get("style", "dashed")
             dash = () if style == "solid" else ((6, 4) if style == "dashed" else (2, 4))
-            c.create_line(x1, y1, x2, y2, fill=r.get("color", "#8b93a5"), dash=dash,
-                          width=2 if e["rel"] == tree_rel else 1)
+            c.create_line(self._sx(x1), self._sy(y1), self._sx(x2), self._sy(y2),
+                          fill=r.get("color", "#8b93a5"), dash=dash,
+                          width=max(1, int((2 if e["rel"] == tree_rel else 1) * min(k, 2))))
+        label_font = ("Microsoft YaHei UI", max(7, int(9 * min(k, 1.8))))
         for nid in vis:
             n = self.by_id[nid]
-            x, y = self.pos.get(nid, (0.0, 0.0))
+            px, py = self.pos.get(nid, (0.0, 0.0))
+            x, y = self._sx(px), self._sy(py)
             dom = n.get("type") == "domain"
-            rad = 9 if dom else 6
+            rad = max(3.0, (9 if dom else 6) * min(k, 2.0))
             color = self.top_color.get(n.get("top", ""), "#8b93a5")
             sel = (nid == self.selected)
             self._items[c.create_oval(x - rad, y - rad, x + rad, y + rad, fill=color,
                                       outline="#ffffff" if sel else color,
                                       width=3 if sel else 1)] = nid
-            self._items[c.create_text(x + rad + 6, y, text=n["title"], anchor="w",
+            self._items[c.create_text(x + rad + 5, y, text=n["title"], anchor="w",
+                                      font=label_font,
                                       fill="#e6e9f0" if dom else "#b9c0cf")] = nid
         self._update_legend()
 
@@ -676,7 +702,9 @@ class GraphView(ttk.Frame):
             return
         dx, dy = event.x - self._last[0], event.y - self._last[1]
         self._last = (event.x, event.y)
-        self.canvas.move("all", dx, dy)
+        self.tx += dx
+        self.ty += dy
+        self.canvas.move("all", dx, dy)          # 直接搬动画布更快，同时同步 tx/ty
 
     def _on_double(self, event) -> None:
         nid = self._node_at(event)
@@ -684,33 +712,51 @@ class GraphView(ttk.Frame):
             self.app.open_obsidian(nid)
 
     def _on_wheel(self, event) -> None:
-        self.zoom(1.15 if event.delta > 0 else 1 / 1.15)
+        self.zoom(1.15 if event.delta > 0 else 1 / 1.15, event.x, event.y)
 
-    def zoom(self, f: float) -> None:
-        cx, cy = self.canvas.winfo_width() / 2, self.canvas.winfo_height() / 2
-        self.canvas.scale("all", cx, cy, f, f)
-        self.scale *= f
+    def zoom(self, f: float, cx: float | None = None, cy: float | None = None) -> None:
+        """以 (cx, cy) 为锚点缩放；不传就按画布中心。缩放后不改变你所看的位置。"""
+        target = max(0.15, min(4.0, self.k * f))
+        f = target / self.k
+        if abs(f - 1.0) < 1e-6:
+            return
+        cx = self.canvas.winfo_width() / 2 if cx is None else cx
+        cy = self.canvas.winfo_height() / 2 if cy is None else cy
+        self.tx = cx - (cx - self.tx) * f
+        self.ty = cy - (cy - self.ty) * f
+        self.k = target
+        self.redraw()
 
     def fit(self) -> None:
+        """把整张图放进画布中央。"""
         self.canvas.update_idletasks()
-        if self.scale != 1.0:
-            cx, cy = self.canvas.winfo_width() / 2, self.canvas.winfo_height() / 2
-            self.canvas.scale("all", cx, cy, 1 / self.scale, 1 / self.scale)
-            self.scale = 1.0
-        bbox = self.canvas.bbox("all")
-        if not bbox:
+        if not self.pos:
+            self.redraw()
             return
-        w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
-        self.canvas.move("all", w / 2 - (bbox[0] + bbox[2]) / 2, h / 2 - (bbox[1] + bbox[3]) / 2)
+        xs = [p[0] for p in self.pos.values()]
+        ys = [p[1] for p in self.pos.values()]
+        w = max(1.0, max(xs) - min(xs))
+        h = max(1.0, max(ys) - min(ys))
+        W = max(80, self.canvas.winfo_width())
+        H = max(80, self.canvas.winfo_height())
+        self.k = max(0.15, min(1.8, min((W - 80) / (w + 200), (H - 80) / (h + 70))))
+        self.tx = W / 2 - (min(xs) + max(xs)) / 2 * self.k
+        self.ty = H / 2 - (min(ys) + max(ys)) / 2 * self.k
+        self.redraw()
+
+    def _on_resize(self, _event=None) -> None:
+        # 画布第一次拿到真实尺寸时自动适应一次；之后用户自己平移/缩放过就不打扰他
+        if getattr(self, "_needs_fit", False):
+            self._needs_fit = False
+            self.after(20, self.fit)
 
     def _center_on(self, nid: str) -> None:
-        for item, n in self._items.items():
-            if n == nid and self.canvas.type(item) == "oval":
-                x1, y1, x2, y2 = self.canvas.coords(item)
-                self.canvas.move("all",
-                                 self.canvas.winfo_width() / 2 - (x1 + x2) / 2,
-                                 self.canvas.winfo_height() / 2 - (y1 + y2) / 2)
-                return
+        p = self.pos.get(nid)
+        if not p:
+            return
+        self.tx = self.canvas.winfo_width() / 2 - p[0] * self.k
+        self.ty = self.canvas.winfo_height() / 2 - p[1] * self.k
+        self.redraw()
 
     def select(self, nid: str) -> None:
         if nid not in self.by_id:
