@@ -34,6 +34,7 @@ NOTES = ROOT / "notes"
 BUILD_PY = ROOT / "tools" / "build.py"
 NEW_PY = ROOT / "tools" / "new.py"
 CONFIG = ROOT / "kb.config.yml"
+ICON = ROOT / "tools" / "kb.ico"       # 由 tools/make_icon.py 生成
 VAULT_NAME = ROOT.name
 PYTHON = sys.executable
 # 如果界面是用 pythonw（无控制台）启动的，子进程改用 python.exe，输出管道更稳
@@ -115,6 +116,11 @@ class App(tk.Tk):
     def __init__(self, start_tab: str = "笔记") -> None:
         super().__init__()
         self.title("知识库控制台")
+        try:                                    # 窗口与任务栏图标
+            if ICON.exists():
+                self.iconbitmap(default=str(ICON))
+        except Exception:                       # noqa: BLE001
+            pass
         self.geometry("1060x700")
         self.minsize(860, 540)
         self.option_add("*Font", ("Microsoft YaHei UI", 10))
