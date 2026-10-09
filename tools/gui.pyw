@@ -20,11 +20,12 @@ import re
 import subprocess
 import sys
 import threading
+import webbrowser
 from pathlib import Path
 from urllib.parse import quote
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 
 # ---------------------------------------------------------------- 基本路径
@@ -111,7 +112,7 @@ def run_script(script: Path, args: list[str]) -> tuple[int, str]:
 
 # ---------------------------------------------------------------- 界面
 class App(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, start_tab: str = "笔记") -> None:
         super().__init__()
         self.title("知识库控制台")
         self.geometry("1060x700")
@@ -126,6 +127,8 @@ class App(tk.Tk):
         self._build_body()
         self._build_status()
 
+        if start_tab == "图谱":
+            self.nb.select(1)
         self.refresh()
         self.after(80, self._pump)
         self.log(f"知识库位置：{ROOT}", "dim")
@@ -147,9 +150,20 @@ class App(tk.Tk):
         btn("打开 notes 文件夹", lambda: self._open_path(NOTES), 16)
         btn("刷新列表", self.refresh, 10)
 
-    # ---------------- 主体：左树 + 右表单/报告
+    # ---------------- 主体：两个标签页（笔记 / 图谱）
     def _build_body(self) -> None:
-        pane = ttk.Panedwindow(self, orient="horizontal")
+        self.nb = ttk.Notebook(self)
+        self.nb.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        note_tab = ttk.Frame(self.nb)
+        self.nb.add(note_tab, text="  笔记  ")
+        graph_tab = ttk.Frame(self.nb)
+        self.nb.add(graph_tab, text="  图谱  ")
+        self._build_note_tab(note_tab)
+        self.graph = GraphView(graph_tab, self)
+        self.graph.pack(fill="both", expand=True)
+
+    def _build_note_tab(self, parent) -> None:
+        pane = ttk.Panedwindow(parent, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         # 左：笔记树
@@ -320,6 +334,8 @@ class App(tk.Tk):
         if self.cb_parent.current() < 0:
             self.cb_parent.current(0)
         self.update_status()
+        if getattr(self, "graph", None) is not None:
+            self.graph.reload()
         self.log(f"列表已刷新：{len(self.notes)} 条笔记"
                  f"（领域 {sum(1 for i in self.notes if i['type'] == 'domain')} / "
                  f"概念 {sum(1 for i in self.notes if i['type'] == 'concept')}）\n", "dim")
@@ -410,6 +426,365 @@ class App(tk.Tk):
 
         self.run_async(f"新建笔记 {nid}", NEW_PY, args, done=after)
 
+    # ---------------- 供图谱页右键菜单调用
+    def create_under(self, parent_id: str | None, ntype: str) -> None:
+        """在图谱里右键新建：弹一个小输入框，然后调 new.py + 构建。"""
+        what = "分支" if ntype == "domain" else "概念"
+        title = simpledialog.askstring(
+            f"新建{what}", f"父节点：{parent_id or '（顶层）'}\n\n标题（中文即可）：",
+            parent=self)
+        if not title or not title.strip():
+            return
+        title = title.strip()
+        seg = slugify(title)
+        if not seg:
+            messagebox.showwarning("标题不合法", "标题里没有能用作文件名的字符。")
+            return
+        nid = f"{parent_id}/{seg}" if parent_id else seg
+        args = [nid, "--title", title, "--type", ntype]
+
+        def after(code: int) -> None:
+            if code != 0:
+                return
+            self.refresh()
+
+            def after_build(_code: int) -> None:
+                self.refresh()                     # 重新读 out\graph.json，新节点才会出现
+                self.nb.select(1)
+                self.graph.select(nid)
+
+            self.run_async("构建 / 体检", BUILD_PY, [], done=after_build)
+
+        self.run_async(f"新建{what} {nid}", NEW_PY, args, done=after)
+
+    def locate_in_tree(self, nid: str) -> None:
+        self.nb.select(0)
+        if self.tree.exists(nid):
+            self.tree.selection_set(nid)
+            self.tree.focus(nid)
+            self.tree.see(nid)
+
+    def open_web_focus(self, nid: str) -> None:
+        html = output_html()
+        if not html.exists():
+            messagebox.showinfo("还没有网页", "先点【构建 / 体检】生成网页。")
+            return
+        webbrowser.open(f"{html.as_uri()}?focus={quote(nid)}")
+
+
+# ---------------------------------------------------------------- 图谱页
+class GraphView(ttk.Frame):
+    """把 out/graph.json 画成可交互的图。
+
+    左键点节点 = 选中；左键双击 = 在 Obsidian 里打开；右键节点 = 新建分支 / 概念；
+    拖动空白处平移；滚轮缩放。
+    """
+
+    PALETTE = ["#6aa6ff", "#f0a35e", "#5ec48a", "#c48ae0", "#e0708a",
+               "#5ec4c4", "#c4b45e", "#8a9ae0", "#e0955e", "#7ad0a0"]
+
+    def __init__(self, master, app) -> None:
+        super().__init__(master)
+        self.app = app
+        self.data: dict | None = None
+        self.by_id: dict[str, dict] = {}
+        self.rel_by_id: dict[str, dict] = {}
+        self.top_color: dict[str, str] = {}
+        self.pos: dict[str, tuple[float, float]] = {}
+        self._items: dict[int, str] = {}
+        self.selected: str | None = None
+        self.focus_id: str | None = None
+        self.scale = 1.0
+        self._panning = False
+        self._last = (0, 0)
+        self._build_ui()
+        self.reload()
+
+    def _build_ui(self) -> None:
+        bar = ttk.Frame(self, padding=(6, 6, 6, 0))
+        bar.pack(fill="x")
+        ttk.Button(bar, text="重新布局", command=self.relayout).pack(side="left", padx=2)
+        ttk.Button(bar, text="适应窗口", command=self.fit).pack(side="left", padx=2)
+        ttk.Button(bar, text="＋", width=3, command=lambda: self.zoom(1.25)).pack(side="left", padx=2)
+        ttk.Button(bar, text="－", width=3, command=lambda: self.zoom(0.8)).pack(side="left", padx=2)
+        self.v_focus = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="只看选中节点的邻居", variable=self.v_focus,
+                        command=self.redraw).pack(side="left", padx=(10, 0))
+        ttk.Label(bar, text="方向").pack(side="left", padx=(10, 2))
+        self.v_dir = tk.StringVar(value="横")
+        for txt, val in (("横向", "横"), ("纵向", "纵")):
+            ttk.Radiobutton(bar, text=txt, value=val, variable=self.v_dir,
+                            command=self.relayout).pack(side="left")
+        ttk.Button(bar, text="网页版", command=self.app.open_web).pack(side="right", padx=2)
+        ttk.Button(bar, text="刷新", command=self.reload).pack(side="right", padx=2)
+
+        self.canvas = tk.Canvas(self, background="#12141a", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=6, pady=(4, 2))
+        self.canvas.bind("<Button-1>", self._on_click)
+        self.canvas.bind("<Double-1>", self._on_double)
+        self.canvas.bind("<Button-3>", self._on_right)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<MouseWheel>", self._on_wheel)
+
+        self.info = ttk.Label(self, anchor="w", padding=(8, 1),
+                              text="右键点节点 = 新建分支 / 概念　·　拖动空白处平移　·　滚轮缩放")
+        self.info.pack(fill="x")
+        self.legend = ttk.Frame(self, padding=(8, 0, 8, 4))
+        self.legend.pack(fill="x")
+
+    # ---------------- 数据
+    def reload(self) -> None:
+        try:
+            self.data = json.loads((output_html().parent / "graph.json").read_text(encoding="utf-8"))
+        except Exception:                                  # noqa: BLE001
+            self.data = None
+        self.by_id = {n["id"]: n for n in (self.data or {}).get("nodes", [])}
+        self.rel_by_id = {r["id"]: r for r in (self.data or {}).get("relations", [])}
+        self.top_color = {r: self.PALETTE[i % len(self.PALETTE)]
+                          for i, r in enumerate((self.data or {}).get("roots", []))}
+        self.selected = None
+        self.focus_id = None
+        self.v_focus.set(False)
+        self.relayout()
+
+    # ---------------- 层次布局（父在左，子在右；纵向可切换）
+    def relayout(self) -> None:
+        if not self.data or not self.by_id:
+            self.redraw()
+            return
+        kids = {nid: [c for c in (n.get("children") or []) if c in self.by_id]
+                for nid, n in self.by_id.items()}
+        depth: dict[str, int] = {}
+        leaves: list[str] = []
+
+        def walk(nid: str, d: int, seen: set) -> None:
+            if nid in seen:
+                return
+            seen.add(nid)
+            depth[nid] = d
+            if not kids.get(nid):
+                leaves.append(nid)
+            for c in kids.get(nid, []):
+                walk(c, d + 1, seen)
+
+        seen: set = set()
+        for r in self.data.get("roots", []):
+            if r in self.by_id:
+                walk(r, 0, seen)
+        for nid in self.by_id:                              # 兜底：没连上树的孤立节点
+            walk(nid, 0, seen)
+
+        slot = {nid: float(i) for i, nid in enumerate(leaves)}
+        ycache: dict[str, float] = {}
+
+        def yslot(nid: str) -> float:
+            if nid not in ycache:
+                ks = kids.get(nid) or []
+                ycache[nid] = slot.get(nid, 0.0) if not ks else sum(yslot(c) for c in ks) / len(ks)
+            return ycache[nid]
+
+        for nid in self.by_id:
+            yslot(nid)
+        if self.v_dir.get() == "横":
+            self.pos = {nid: (60.0 + depth.get(nid, 0) * 205.0, 40.0 + ycache[nid] * 40.0)
+                        for nid in self.by_id}
+        else:
+            self.pos = {nid: (60.0 + ycache[nid] * 150.0, 40.0 + depth.get(nid, 0) * 86.0)
+                        for nid in self.by_id}
+        self.redraw()
+        self.fit()
+
+    # ---------------- 绘制
+    def redraw(self) -> None:
+        c = self.canvas
+        c.delete("all")
+        self._items = {}
+        if not self.data or not self.by_id:
+            c.create_text(20, 20, anchor="nw", fill="#8b93a5",
+                          text="还没有图谱数据。先去「笔记」页点【构建 / 体检】。")
+            self._update_legend()
+            return
+        vis = set(self.by_id)
+        if self.focus_id and self.v_focus.get():
+            vis = {self.focus_id}
+            for e in self.data["edges"]:
+                if e["source"] == self.focus_id:
+                    vis.add(e["target"])
+                elif e["target"] == self.focus_id:
+                    vis.add(e["source"])
+        tree_rel = self.data.get("treeRel", "parent")
+        for e in self.data["edges"]:
+            if e["source"] not in vis or e["target"] not in vis:
+                continue
+            x1, y1 = self.pos.get(e["source"], (0.0, 0.0))
+            x2, y2 = self.pos.get(e["target"], (0.0, 0.0))
+            r = self.rel_by_id.get(e["rel"], {})
+            style = r.get("style", "dashed")
+            dash = () if style == "solid" else ((6, 4) if style == "dashed" else (2, 4))
+            c.create_line(x1, y1, x2, y2, fill=r.get("color", "#8b93a5"), dash=dash,
+                          width=2 if e["rel"] == tree_rel else 1)
+        for nid in vis:
+            n = self.by_id[nid]
+            x, y = self.pos.get(nid, (0.0, 0.0))
+            dom = n.get("type") == "domain"
+            rad = 9 if dom else 6
+            color = self.top_color.get(n.get("top", ""), "#8b93a5")
+            sel = (nid == self.selected)
+            self._items[c.create_oval(x - rad, y - rad, x + rad, y + rad, fill=color,
+                                      outline="#ffffff" if sel else color,
+                                      width=3 if sel else 1)] = nid
+            self._items[c.create_text(x + rad + 6, y, text=n["title"], anchor="w",
+                                      fill="#e6e9f0" if dom else "#b9c0cf")] = nid
+        self._update_legend()
+
+    def _update_legend(self) -> None:
+        for w in self.legend.winfo_children():
+            w.destroy()
+        if not self.data:
+            return
+        counts: dict[str, int] = {}
+        for e in self.data["edges"]:
+            counts[e["rel"]] = counts.get(e["rel"], 0) + 1
+        for r in self.data.get("relations", []):
+            if counts.get(r["id"]):
+                tk.Label(self.legend, text=f"● {r['label']} {counts[r['id']]}",
+                         foreground=r.get("color", "#8b93a5")).pack(side="left", padx=6)
+
+    # ---------------- 交互
+    def _node_at(self, event) -> str | None:
+        for item in self.canvas.find_overlapping(event.x - 3, event.y - 3, event.x + 3, event.y + 3):
+            if item in self._items:
+                return self._items[item]
+        return None
+
+    def _on_click(self, event) -> None:
+        nid = self._node_at(event)
+        self._panning = nid is None
+        self._last = (event.x, event.y)
+        self.selected = nid
+        self.redraw()
+        self._show_info(nid)
+
+    def _on_drag(self, event) -> None:
+        if not self._panning:
+            return
+        dx, dy = event.x - self._last[0], event.y - self._last[1]
+        self._last = (event.x, event.y)
+        self.canvas.move("all", dx, dy)
+
+    def _on_double(self, event) -> None:
+        nid = self._node_at(event)
+        if nid:
+            self.app.open_obsidian(nid)
+
+    def _on_wheel(self, event) -> None:
+        self.zoom(1.15 if event.delta > 0 else 1 / 1.15)
+
+    def zoom(self, f: float) -> None:
+        cx, cy = self.canvas.winfo_width() / 2, self.canvas.winfo_height() / 2
+        self.canvas.scale("all", cx, cy, f, f)
+        self.scale *= f
+
+    def fit(self) -> None:
+        self.canvas.update_idletasks()
+        if self.scale != 1.0:
+            cx, cy = self.canvas.winfo_width() / 2, self.canvas.winfo_height() / 2
+            self.canvas.scale("all", cx, cy, 1 / self.scale, 1 / self.scale)
+            self.scale = 1.0
+        bbox = self.canvas.bbox("all")
+        if not bbox:
+            return
+        w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
+        self.canvas.move("all", w / 2 - (bbox[0] + bbox[2]) / 2, h / 2 - (bbox[1] + bbox[3]) / 2)
+
+    def _center_on(self, nid: str) -> None:
+        for item, n in self._items.items():
+            if n == nid and self.canvas.type(item) == "oval":
+                x1, y1, x2, y2 = self.canvas.coords(item)
+                self.canvas.move("all",
+                                 self.canvas.winfo_width() / 2 - (x1 + x2) / 2,
+                                 self.canvas.winfo_height() / 2 - (y1 + y2) / 2)
+                return
+
+    def select(self, nid: str) -> None:
+        if nid not in self.by_id:
+            return
+        self.selected = nid
+        self.redraw()
+        self._center_on(nid)
+        self._show_info(nid)
+
+    def focus(self, nid: str | None) -> None:
+        self.focus_id = nid
+        self.v_focus.set(bool(nid))
+        if nid:
+            self.selected = nid
+        self.redraw()
+        if nid:
+            self._center_on(nid)
+        self._show_info(nid)
+
+    def _copy(self, nid: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(nid)
+        self.info.configure(text=f"已复制 id：{nid}")
+
+    def _show_info(self, nid: str | None) -> None:
+        if not nid or nid not in self.by_id:
+            self.info.configure(
+                text="右键点节点 = 新建分支 / 概念　·　左键双击 = 在 Obsidian 打开　·　拖动空白处平移　·　滚轮缩放")
+            return
+        n = self.by_id[nid]
+        ups = [self.by_id[p]["title"] for p in (n.get("parents") or []) if p in self.by_id]
+        downs = [self.by_id[c]["title"] for c in (n.get("children") or []) if c in self.by_id]
+        rel_txt = "、".join(f"{self.rel_by_id.get(e['rel'], {}).get('label', e['rel'])}"
+                            for e in self.data["edges"] if e["source"] == nid) or "—"
+        self.info.configure(
+            text=f"{n['title']}（{n.get('type')}）　上级：{'、'.join(ups) or '—'}　"
+                 f"下级：{'、'.join(downs) or '—'}　关系：{rel_txt}　id：{nid}")
+
+    # ---------------- 右键菜单
+    def _node_menu(self, nid: str) -> tk.Menu:
+        n = self.by_id[nid]
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label=f"{n['title']}", state="disabled")
+        m.add_separator()
+        m.add_command(label="在此节点下新建分支…",
+                      command=lambda: self.app.create_under(nid, "domain"))
+        m.add_command(label="在此节点下新建概念…",
+                      command=lambda: self.app.create_under(nid, "concept"))
+        m.add_separator()
+        m.add_command(label="在 Obsidian 里打开", command=lambda: self.app.open_obsidian(nid))
+        m.add_command(label="在「笔记」列表里定位", command=lambda: self.app.locate_in_tree(nid))
+        m.add_command(label="只看它和邻居", command=lambda: self.focus(nid))
+        if self.focus_id:
+            m.add_command(label="取消聚焦", command=lambda: self.focus(None))
+        m.add_separator()
+        m.add_command(label="复制节点 id", command=lambda: self._copy(nid))
+        m.add_command(label="在网页版里打开（聚焦它）",
+                      command=lambda: self.app.open_web_focus(nid))
+        return m
+
+    def _canvas_menu(self) -> tk.Menu:
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label="新建顶层领域…", command=lambda: self.app.create_under(None, "domain"))
+        m.add_separator()
+        m.add_command(label="重新布局", command=self.relayout)
+        m.add_command(label="适应窗口", command=self.fit)
+        m.add_command(label="刷新数据", command=self.reload)
+        return m
+
+    def _on_right(self, event) -> None:
+        nid = self._node_at(event)
+        menu = self._node_menu(nid) if nid else self._canvas_menu()
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                menu.grab_release()
+            except tk.TclError:
+                pass
+
 
 def main() -> None:
     if os.name == "nt":                                    # 高 DPI 下别糊
@@ -419,7 +794,12 @@ def main() -> None:
         except Exception:                                  # noqa: BLE001
             pass
     NOTES.mkdir(exist_ok=True)
-    App().mainloop()
+    tab = "笔记"
+    if "--tab" in sys.argv:
+        i = sys.argv.index("--tab")
+        if i + 1 < len(sys.argv) and sys.argv[i + 1].lower().startswith("g"):
+            tab = "图谱"
+    App(start_tab=tab).mainloop()
 
 
 if __name__ == "__main__":
