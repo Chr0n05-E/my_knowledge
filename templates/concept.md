@@ -1,5 +1,5 @@
 ---
-id: 领域/分支/概念-id
+id: 领域/分支/概念_id
 title: 概念名称
 type: concept
 parents: []

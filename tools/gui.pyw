@@ -61,10 +61,10 @@ def output_html() -> Path:
 
 
 def slugify(s: str) -> str:
-    """把标题变成能当文件名用的 id 末段（中文保留，空格变短横线）。"""
-    s = re.sub(r"\s+", "-", s.strip())
-    s = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff\-_]", "", s)
-    return s.strip("-")
+    """把标题变成能当文件名用的 id 末段：空格与连字符统一成下划线，中文保留，大小写保持你输入的样子。"""
+    s = re.sub(r"[\s\-]+", "_", s.strip())
+    s = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_]", "", s)
+    return s.strip("_")
 
 
 def scan_notes() -> list[dict]:
@@ -511,7 +511,7 @@ class NewNodeDialog(simpledialog.Dialog):
         ttk.Label(master, text="文件名").grid(row=2, column=0, sticky="w", pady=2)
         self.e_seg = ttk.Entry(master, width=40)
         self.e_seg.grid(row=2, column=1, pady=2)
-        ttk.Label(master, text="短名，建议英文（如 infosec）",
+        ttk.Label(master, text="短名，用下划线分词（如 data_structure）；大小写随你",
                   foreground="#888888").grid(row=3, column=1, sticky="w")
 
         ttk.Label(master, text="标签").grid(row=4, column=0, sticky="w", pady=2)

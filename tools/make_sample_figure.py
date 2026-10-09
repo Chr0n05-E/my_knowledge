@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生成 notes/aesthetics/calligraphy/attachments/zhongfeng-vs-pianfeng.png——
+生成 notes/aesthetics/calligraphy/attachments/zhongfeng_vs_pianfeng.png——
 一张用来说明「中锋 / 偏锋」墨色分布的示意图（顺便当图片管线的示例：build.py 会把它拷进 out/assets/）。
 
 做法：不叠画线条（会叠成死黑），而是用 numpy 直接算每条笔画横截面的墨量分布。
@@ -20,7 +20,7 @@ except Exception:
     pass
 
 ROOT = Path(__file__).resolve().parent.parent
-DEST = ROOT / "notes" / "aesthetics" / "calligraphy" / "attachments" / "zhongfeng-vs-pianfeng.png"
+DEST = ROOT / "notes" / "aesthetics" / "calligraphy" / "attachments" / "zhongfeng_vs_pianfeng.png"
 
 W, H = 960, 430
 BG = np.array([250.0, 249.0, 246.0])

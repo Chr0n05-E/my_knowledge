@@ -1,9 +1,9 @@
 ---
-id: science/computer-science/infosec/crypto
-title: 密码学
+id: science/computer_science/infosec
+title: 信息安全
 type: domain
 parents:
-  - science/computer-science/infosec
+  - science/computer_science
 aliases: []
 tags:
   - 学科
@@ -11,7 +11,7 @@ status: seed
 created: 2026-10-07
 updated: 2026-10-07
 ---
-# 密码学
+# 信息安全
 
 ## 定义
 

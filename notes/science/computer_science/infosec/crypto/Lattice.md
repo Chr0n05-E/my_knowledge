@@ -1,9 +1,9 @@
 ---
-id: science/computer-science/infosec/crypto/Lattice
+id: science/computer_science/infosec/crypto/Lattice
 title: 格密码学
 type: domain
 parents:
-  - science/computer-science/infosec/crypto
+  - science/computer_science/infosec/crypto
 aliases: []
 tags:
   - 学科

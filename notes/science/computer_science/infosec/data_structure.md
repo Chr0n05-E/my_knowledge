@@ -1,17 +1,15 @@
 ---
-id: science/computer-science
-title: 计算机科学
+id: science/computer_science/infosec/data_structure
+title: 数据结构
 type: domain
-parents:
-  - science
+parents: [science/computer_science/infosec]
 aliases: []
-tags:
-  - 学科
+tags: []
 status: seed
-created: 2026-10-07
-updated: 2026-10-07
+created: 2026-10-09
+updated: 2026-10-09
 ---
-# 计算机科学
+# 数据结构
 
 ## 这个领域在研究什么
 
