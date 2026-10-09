@@ -3,19 +3,23 @@
 # 每条关系会在 HTML 里渲染成一种颜色的线（虚线/点线由 style 决定）：
 #   id          内部标识（别改，frontmatter 与正文标签都解析到它）
 #   label       图例与「关系」面板上显示的名字
-#   out_label   本文 → 对方 时的叫法（例：本文的"上级"）
-#   in_label    对方 → 本文 时的叫法（例：本文的"下级"）
+#   out_label   本文 → 对方 时的叫法（例：本文的"下级"）
+#   in_label    对方 → 本文 时的叫法（例：本文的"上级"）
 #   color       线色
-#   style       solid | dashed | dotted
+#   style       solid | dashed | dotted（实线 | 虚线 | 点线）
 #   directed    是否有方向（有方向就画箭头）
-#   tree        是否决定左侧目录树的形状（只能有一条为 true）
+#   arrow_dir   箭头画在哪一端：target（默认，指向对方）| source（指回自己）
+#   tree        是否决定目录树的形状（只能有一条为 true）
 #   aliases     正文里可以怎么写这个关系（中英文都行）
+#
+# 从属关系的方向是"父 → 子"：箭头顺着层级往下指（科学 → 计算机科学 → …），
+# 所以 out_label 是"下级"（本文指向它的下级）、in_label 是"上级"。
 
 relations:
   - id: parent
     label: 从属
-    out_label: 上级
-    in_label: 下级
+    out_label: 下级
+    in_label: 上级
     color: "#8c98af"
     style: solid
     directed: true

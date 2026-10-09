@@ -107,6 +107,7 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
                 "color": str(r.get("color") or "#8b93a5"),
                 "style": str(r.get("style") or REL_STYLE_DEFAULT),
                 "directed": bool(r.get("directed", True)),
+                "arrow_dir": str(r.get("arrow_dir") or "target"),
                 "tree": bool(r.get("tree", False)),
                 "aliases": [str(a) for a in (r.get("aliases") or [])],
             })
@@ -723,8 +724,8 @@ def build_payload(nodes: dict, children: dict, resolve, warnings: list[str]) -> 
     for n in out_nodes:
         for p in n["parents"]:
             if p in nodes:
-                # 从属关系：source=子节点，target=父节点（箭头的含义是"它的上级是…"）
-                add_edge(n["id"], p, TREE_REL, tree=(p == n["primaryParent"]))
+                # 从属关系：source=父节点，target=子节点（箭头顺着层级往下：科学 → 计算机科学）
+                add_edge(p, n["id"], TREE_REL, tree=(p == n["primaryParent"]))
                 tree_pairs.add(frozenset((n["id"], p)))
     for n in out_nodes:
         for r in n["rels"]:

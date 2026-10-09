@@ -737,11 +737,13 @@ class GraphView(ttk.Frame):
         n = self.by_id[nid]
         ups = [self.by_id[p]["title"] for p in (n.get("parents") or []) if p in self.by_id]
         downs = [self.by_id[c]["title"] for c in (n.get("children") or []) if c in self.by_id]
+        tree_rel = (self.data or {}).get("treeRel", "parent")
         rel_txt = "、".join(f"{self.rel_by_id.get(e['rel'], {}).get('label', e['rel'])}"
-                            for e in self.data["edges"] if e["source"] == nid) or "—"
+                            for e in self.data["edges"]
+                            if e["source"] == nid and e["rel"] != tree_rel) or "—"
         self.info.configure(
             text=f"{n['title']}（{n.get('type')}）　上级：{'、'.join(ups) or '—'}　"
-                 f"下级：{'、'.join(downs) or '—'}　关系：{rel_txt}　id：{nid}")
+                 f"下级：{'、'.join(downs) or '—'}　其他关系：{rel_txt}　id：{nid}")
 
     # ---------------- 右键菜单
     def _node_menu(self, nid: str) -> tk.Menu:

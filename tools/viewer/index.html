@@ -140,6 +140,20 @@
     position:absolute;right:14px;bottom:14px;color:var(--fg3);font-size:11.5px;text-align:right;
     background:rgba(18,20,26,.7);padding:4px 9px;border-radius:6px
   }
+  /* 图谱左上角的布局控件 */
+  #glayout{
+    position:absolute;left:14px;top:12px;display:flex;align-items:center;gap:4px;
+    background:rgba(18,20,26,.82);border:1px solid var(--line);border-radius:8px;padding:4px 8px;
+    font-size:11.5px;color:var(--fg3);white-space:nowrap
+  }
+  #glayout span{white-space:nowrap}
+  #glayout button{
+    background:none;border:1px solid var(--line);color:var(--fg2);border-radius:6px;
+    font-size:11.5px;padding:2px 8px;cursor:pointer;font-family:inherit
+  }
+  #glayout button:hover{border-color:var(--accent);color:var(--fg)}
+  #glayout button.on{background:var(--accent);border-color:var(--accent);color:#0d1117;font-weight:600}
+  #glayout .sep{width:1px;height:14px;background:var(--line);margin:0 4px}
   #empty{color:var(--fg3);text-align:center;margin-top:80px}
   [hidden]{display:none !important}
 </style>
@@ -172,6 +186,17 @@
     <article id="note"><div id="empty">从左侧点一个节点开始。数据来自 notes/ 下的 Markdown 笔记。</div></article>
     <div id="graphwrap" hidden>
       <canvas id="cv"></canvas>
+      <div id="glayout">
+        <span>布局</span>
+        <button data-layout="tree" class="on">层次</button>
+        <button data-layout="force">力导向</button>
+        <span class="sep dirsep"></span>
+        <span class="dirlabel">方向</span>
+        <button data-dir="h" class="on">横向</button>
+        <button data-dir="v">纵向</button>
+        <span class="sep"></span>
+        <button id="gfit">适应窗口</button>
+      </div>
       <div id="legend"></div>
       <div id="rellegend"></div>
       <div id="ghelp">滚轮缩放 · 拖动平移 · 单击节点打开笔记</div>
@@ -444,7 +469,8 @@ let focusMode = false;             // 是否只显示聚焦节点及其邻居
 function edgeStyle(rel){
   const r = RELS[rel] || { color:'#8b93a5', style:'dotted', directed:false, label:rel };
   const dash = r.style === 'dashed' ? [6,4] : r.style === 'dotted' ? [1.5,3.5] : [];
-  return { color: r.color, dash, directed: !!r.directed, label: r.label, style: r.style };
+  return { color: r.color, dash, directed: !!r.directed, label: r.label, style: r.style,
+           arrowDir: r.arrow_dir === 'source' ? 'source' : 'target' };
 }
 function hexA(hex, a){
   const h = (hex || '#8b93a5').replace('#','');
@@ -497,6 +523,43 @@ G.nodes.forEach(g => {
   g.vis = () => !hidden.has(g.n.top);
 });
 
+/* ---------------- 布局：层次树（默认）/ 力导向 ---------------- */
+let layoutMode = 'tree';      // 'tree' | 'force'
+let treeDir = 'h';            // 'h' 横向（父左子右）| 'v' 纵向（父上子下）
+
+function treeLayout(){
+  const kids = {};
+  DATA.nodes.forEach(n => { kids[n.id] = (n.children || []).filter(c => byId[c]); });
+  const depth = {}, leaves = [], seen = new Set();
+  function walk(id, d){
+    if (seen.has(id)) return;
+    seen.add(id);
+    depth[id] = d;
+    const ks = kids[id] || [];
+    if (!ks.length) leaves.push(id);
+    ks.forEach(c => walk(c, d + 1));
+  }
+  (DATA.roots || []).forEach(r => { if (byId[r]) walk(r, 0); });
+  DATA.nodes.forEach(n => walk(n.id, 0));          // 兜底：没连上树的孤立节点
+  const slot = {};
+  leaves.forEach((id, i) => { slot[id] = i; });
+  const yv = {};
+  function yslot(id){
+    if (id in yv) return yv[id];
+    const ks = kids[id] || [];
+    yv[id] = ks.length ? ks.reduce((a, c) => a + yslot(c), 0) / ks.length : (slot[id] || 0);
+    return yv[id];
+  }
+  DATA.nodes.forEach(n => yslot(n.id));
+  DATA.nodes.forEach(n => {
+    const g = gById[n.id];
+    if (!g) return;
+    const d = depth[n.id] || 0, s = yv[n.id] || 0;
+    if (treeDir === 'h'){ g.x = 90 + d * 195; g.y = 60 + s * 48; }
+    else { g.x = 90 + s * 150; g.y = 60 + d * 92; }
+  });
+}
+
 const sim = {
   alpha: 1, running: false, raf: 0, presettled: false,
   presettle(n){                       // 先离线算几百步，避免打开时看到一堆挤在角落的点
@@ -505,6 +568,14 @@ const sim = {
     this.presettled = true;
   },
   start(){
+    if (layoutMode === 'tree'){       // 层次布局：直接算坐标，不做模拟
+      this.running = false;
+      cancelAnimationFrame(this.raf);
+      treeLayout();
+      this.draw();
+      this.fit();
+      return;
+    }
     if (this.running) return;
     if (!this.presettled){ this.presettle(280); this.fit(); }
     this.running = true;
@@ -518,6 +589,11 @@ const sim = {
       else { this.running = false; this.fit(); }
     };
     this.raf = requestAnimationFrame(step);
+  },
+  apply(){                            // 切换布局 / 方向后重新摆一次
+    if (layoutMode === 'tree'){ this.presettled = false; }
+    else { this.presettled = false; this.alpha = 1; }
+    this.start();
   },
   stop(){ cancelAnimationFrame(this.raf); this.running = false; },
   tick(){
@@ -587,9 +663,13 @@ const sim = {
       ctx.lineWidth = (e.tree ? 1.2 : (e.rel === TREE_REL ? 1.1 : 1)) * inv;
       ctx.stroke();
       if (st.directed && !faded){
-        const ang = Math.atan2(e.t.y - e.s.y, e.t.x - e.s.x);
-        const r = (e.t.r + 2) * inv + 4 * inv;
-        const ex = e.t.x - Math.cos(ang) * r, ey = e.t.y - Math.sin(ang) * r;
+        // arrow_dir=target（默认）箭头指向对方；arrow_dir=source 箭头指回自己
+        const atTarget = st.arrowDir !== 'source';
+        const from = atTarget ? e.s : e.t;
+        const to = atTarget ? e.t : e.s;
+        const ang = Math.atan2(to.y - from.y, to.x - from.x);
+        const r = (to.r + 2) * inv + 4 * inv;
+        const ex = to.x - Math.cos(ang) * r, ey = to.y - Math.sin(ang) * r;
         const size = 6.5 * inv;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -727,17 +807,49 @@ focusCtl.onclick = () => { setFocusMode(!focusMode); if (focusMode) sim.alpha = 
 setFocusMode(false);
 relLegendEl.appendChild(focusCtl);
 
+/* 布局控件：层次 / 力导向，横向 / 纵向 */
+const layoutBtns = [...document.querySelectorAll('#glayout [data-layout]')];
+const dirBtns = [...document.querySelectorAll('#glayout [data-dir]')];
+function syncLayoutUI(){
+  layoutBtns.forEach(b => b.classList.toggle('on', b.dataset.layout === layoutMode));
+  dirBtns.forEach(b => {
+    b.style.display = layoutMode === 'tree' ? '' : 'none';
+    b.classList.toggle('on', b.dataset.dir === treeDir);
+  });
+  // 方向只对层次布局有意义，力导向时连标签一起藏掉
+  document.querySelectorAll('#glayout .dirlabel, #glayout .dirsep').forEach(el => {
+    el.style.display = layoutMode === 'tree' ? '' : 'none';
+  });
+}
+layoutBtns.forEach(b => b.onclick = () => {
+  if (layoutMode === b.dataset.layout) return;
+  layoutMode = b.dataset.layout;
+  syncLayoutUI();
+  sim.apply();
+});
+dirBtns.forEach(b => b.onclick = () => {
+  treeDir = b.dataset.dir;
+  syncLayoutUI();
+  sim.apply();
+});
+document.getElementById('gfit').onclick = () => sim.fit();
+syncLayoutUI();
+
 /* 启动 */
 const params = new URLSearchParams(location.search);
 const wantGraph = params.get('view') === 'graph';
 const first = decodeURIComponent(location.hash.replace(/^#/, ''));
 const focusParam = params.get('focus') || '';
+// URL 也能指定布局：?layout=force 力导向；?dir=v 纵向（都只在图谱视图有意义）
+if ((params.get('layout') || '').toLowerCase() === 'force') layoutMode = 'force';
+if ((params.get('dir') || '').toLowerCase().startsWith('v')) treeDir = 'v';
+syncLayoutUI();
 const startId = (first && byId[first]) ? first : (focusParam && byId[focusParam] ? focusParam : (DATA.roots[0] || null));
 if (startId) openNote(startId, { keepView: wantGraph || !!focusParam });
 if (focusParam && byId[focusParam]){
   focusId = focusParam;
   setFocusMode(true);
-  sim.presettle(280); sim.fit();
+  sim.apply();
   const g = gById[focusId];       // 把聚焦的节点摆到画布中心
   if (g){ viewport.x = VW / 2 - g.x * viewport.k; viewport.y = VH / 2 - g.y * viewport.k; sim.draw(); }
 }
