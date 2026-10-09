@@ -6,7 +6,7 @@
 - 分支：main
 - 本机目录：E:\Knowledge
 - 已读到外部会话测试提交：`c863f92`，`test: verify ChatGPT GitHub write access`。
-- 测试文件：`helpstudy/github-connection-test.md`；连接测试不算学习成果，保留此文件。
+- 连接测试文件已于2026-10-09整理时删除；测试提交仍可在Git历史查看，不算学习成果。
 
 ## 任务开始
 
