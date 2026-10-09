@@ -47,13 +47,20 @@ def ensure_icon() -> Path:
     return ICON_DST
 
 
-def make_shortcut(name: str, icon: Path) -> str:
-    """用 PowerShell 的 WScript.Shell 建 .lnk；快捷方式名用 Base64 传，避免编码问题。"""
+def make_shortcut(name: str, icon: Path, folder: str) -> str:
+    """用 PowerShell 的 WScript.Shell 建 .lnk；快捷方式名用 Base64 传，避免编码问题。
+
+    folder: 'Desktop' | 'Programs'（开始菜单的程序目录）
+    """
     b64 = base64.b64encode(name.encode("utf-8")).decode("ascii")
     target = shutil.which("pythonw") or sys.executable
     ps = (
         "$n=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}'));"
-        "$p=[IO.Path]::Combine([Environment]::GetFolderPath('Desktop'),$n+'.lnk');"
+        "$dir=if('{folder}' -eq 'Programs')"
+        "{{[IO.Path]::Combine([Environment]::GetFolderPath('ApplicationData'),"
+        "'Microsoft\\Windows\\Start Menu\\Programs')}}"
+        "else{{[Environment]::GetFolderPath('Desktop')}};"
+        "$p=[IO.Path]::Combine($dir,$n+'.lnk');"
         "$ws=New-Object -ComObject WScript.Shell;"
         "$l=$ws.CreateShortcut($p);"
         "$l.TargetPath='{target}';"
@@ -62,7 +69,7 @@ def make_shortcut(name: str, icon: Path) -> str:
         "$l.IconLocation='{icon},0';"
         "$l.Description='Knowledge console';"
         "$l.Save(); Write-Output $p"
-    ).format(b64=b64, target=target, gui=GUI, wd=ROOT, icon=icon)
+    ).format(b64=b64, target=target, gui=GUI, wd=ROOT, icon=icon, folder=folder)
     out = subprocess.run([pick_powershell(), "-NoProfile", "-NonInteractive", "-Command", ps],
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     if out.returncode != 0:
@@ -70,18 +77,42 @@ def make_shortcut(name: str, icon: Path) -> str:
     return out.stdout.strip()
 
 
+def notify_shell(*paths: str) -> None:
+    """告诉资源管理器"这些文件新建了"，否则从别的会话建出来的 .lnk 可能不显示。"""
+    ps = (
+        "Add-Type -Namespace W -Name N -MemberDefinition '"
+        "[System.Runtime.InteropServices.DllImport(\"shell32.dll\",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]"
+        "public static extern void SHChangeNotify(int e,uint f,string a,System.IntPtr b);';"
+        + "".join(f"[W.N]::SHChangeNotify(0x1,0x5,'{p}',[IntPtr]::Zero);" for p in paths)
+        + "[W.N]::SHChangeNotify(0x08000000,0x0,[IntPtr]::Zero,[IntPtr]::Zero);"
+    )
+    subprocess.run([pick_powershell(), "-NoProfile", "-NonInteractive", "-Command", ps],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="创建桌面快捷方式")
     ap.add_argument("--name", default="知识库", help="快捷方式名字（默认：知识库）")
+    ap.add_argument("--start-menu", action="store_true",
+                    help="同时（也）在开始菜单创建一份，搜索就能启动")
     args = ap.parse_args()
 
     if not GUI.exists():
         sys.exit(f"找不到 {GUI}")
     icon = ensure_icon()
-    lnk = make_shortcut(args.name, icon)
     print(f"图标已安装到：{icon}")
-    print(f"快捷方式已创建：{lnk}")
-    print("如果桌面图标没立刻变，按 F5 刷新一下桌面。")
+
+    made: list[str] = []
+    if not args.start_menu:
+        made.append(make_shortcut(args.name, icon, "Desktop"))
+    if args.start_menu:
+        made.append(make_shortcut(args.name, icon, "Desktop"))
+        made.append(make_shortcut(args.name, icon, "Programs"))
+    for p in made:
+        print(f"快捷方式已创建：{p}")
+
+    notify_shell(*made)
+    print("已通知资源管理器刷新；如果桌面还没出现，在桌面按一下 F5。")
     return 0
 
 
