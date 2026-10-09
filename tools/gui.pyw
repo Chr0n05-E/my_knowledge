@@ -444,20 +444,16 @@ class App(tk.Tk):
 
     # ---------------- 供图谱页右键菜单调用
     def create_under(self, parent_id: str | None, ntype: str) -> None:
-        """在图谱里右键新建：弹一个小输入框，然后调 new.py + 构建。"""
-        what = "分支" if ntype == "domain" else "概念"
-        title = simpledialog.askstring(
-            f"新建{what}", f"父节点：{parent_id or '（顶层）'}\n\n标题（中文即可）：",
-            parent=self)
-        if not title or not title.strip():
+        """在图谱里右键新建：弹对话框（标题与文件名分开填），然后调 new.py + 构建。"""
+        dlg = NewNodeDialog(self, parent_id, ntype)
+        if not dlg.result:
             return
-        title = title.strip()
-        seg = slugify(title)
-        if not seg:
-            messagebox.showwarning("标题不合法", "标题里没有能用作文件名的字符。")
-            return
-        nid = f"{parent_id}/{seg}" if parent_id else seg
-        args = [nid, "--title", title, "--type", ntype]
+        r = dlg.result
+        nid = f"{parent_id}/{r['seg']}" if parent_id else r["seg"]
+        args = [nid, "--title", r["title"], "--type", r["type"]]
+        if r["tags"]:
+            args += ["--tags", r["tags"]]
+        what = "分支" if r["type"] == "domain" else "概念"
 
         def after(code: int) -> None:
             if code != 0:
@@ -486,6 +482,93 @@ class App(tk.Tk):
             messagebox.showinfo("还没有网页", "先点【构建 / 体检】生成网页。")
             return
         webbrowser.open(f"{html.as_uri()}?focus={quote(nid)}")
+
+
+# ---------------------------------------------------------------- 新建节点对话框
+class NewNodeDialog(simpledialog.Dialog):
+    """创建节点时用的对话框：**标题**（显示名，中文即可）与**文件名**（id，建议英文）分开填。
+
+    这就是 infosec.md 里 `title: 信息安全` 那种情况——文件名短、标题好看。
+    文件名会随标题自动填一次，你改成英文后就不再自动覆盖。
+    """
+
+    def __init__(self, parent, parent_id: str | None, ntype: str):
+        self.parent_id = parent_id
+        self.ntype = ntype
+        self.result: dict | None = None
+        super().__init__(parent, title="新建" + ("分支" if ntype == "domain" else "概念"))
+
+    def body(self, master):
+        ttk.Label(master, text="挂在").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(master, text=self.parent_id or "（顶层，没有上级）",
+                  foreground="#666666").grid(row=0, column=1, sticky="w", pady=2)
+
+        ttk.Label(master, text="标题").grid(row=1, column=0, sticky="w", pady=2)
+        self.e_title = ttk.Entry(master, width=40)
+        self.e_title.grid(row=1, column=1, pady=2)
+        self.e_title.bind("<KeyRelease>", self._sync_seg)
+
+        ttk.Label(master, text="文件名").grid(row=2, column=0, sticky="w", pady=2)
+        self.e_seg = ttk.Entry(master, width=40)
+        self.e_seg.grid(row=2, column=1, pady=2)
+        ttk.Label(master, text="短名，建议英文（如 infosec）",
+                  foreground="#888888").grid(row=3, column=1, sticky="w")
+
+        ttk.Label(master, text="标签").grid(row=4, column=0, sticky="w", pady=2)
+        self.e_tags = ttk.Entry(master, width=40)
+        self.e_tags.grid(row=4, column=1, pady=2)
+        ttk.Label(master, text="逗号分隔，可留空",
+                  foreground="#888888").grid(row=5, column=1, sticky="w")
+
+        ttk.Label(master, text="类型").grid(row=6, column=0, sticky="nw", pady=2)
+        self.v_type = tk.StringVar(value=self.ntype)
+        ttk.Radiobutton(master, text="概念（叶子，要有「我的理解」）",
+                        value="concept", variable=self.v_type).grid(row=6, column=1, sticky="w")
+        ttk.Radiobutton(master, text="分支 / 领域（下辖其他笔记）",
+                        value="domain", variable=self.v_type).grid(row=7, column=1, sticky="w")
+        return self.e_title
+
+    def buttonbox(self) -> None:
+        """默认按钮是英文 OK/Cancel（Tk 没带中文消息目录），这里换成中文。"""
+        box = ttk.Frame(self)
+        ttk.Button(box, text="创建", width=10, command=self.ok,
+                   default="active").pack(side="left", padx=(0, 8), pady=6)
+        ttk.Button(box, text="取消", width=10, command=self.cancel).pack(side="left", pady=6)
+        self.bind("<Return>", self.ok)
+        self.bind("<Escape>", self.cancel)
+        box.pack(pady=(4, 8))
+
+    def _sync_seg(self, _event=None) -> None:
+        seg = slugify(self.e_title.get())
+        cur = self.e_seg.get()
+        if not cur or cur == getattr(self, "_last_seg", ""):
+            self.e_seg.delete(0, "end")
+            self.e_seg.insert(0, seg)
+        self._last_seg = seg
+
+    def validate(self) -> bool:
+        title = self.e_title.get().strip()
+        seg = self.e_seg.get().strip() or slugify(title)
+        if not title:
+            messagebox.showwarning("缺少标题", "「标题」是这篇笔记在网页/图谱里显示的名字，请填一个。",
+                                   parent=self)
+            return False
+        if not seg or " " in seg or "/" in seg or "\\" in seg:
+            messagebox.showwarning("文件名不合法",
+                                   "「文件名」会成为节点 id，不能为空、不能有空格或斜杠。",
+                                   parent=self)
+            return False
+        self.e_seg.delete(0, "end")
+        self.e_seg.insert(0, seg)
+        return True
+
+    def apply(self) -> None:
+        self.result = {
+            "title": self.e_title.get().strip(),
+            "seg": self.e_seg.get().strip(),
+            "type": self.v_type.get(),
+            "tags": self.e_tags.get().strip(),
+        }
 
 
 # ---------------------------------------------------------------- 图谱页
