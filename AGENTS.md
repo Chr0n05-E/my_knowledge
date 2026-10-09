@@ -1,5 +1,9 @@
 # 个人知识库协作约定
 
+## GitHub同步
+
+共享仓库是 `https://github.com/Chr0n05-E/my_knowledge`，分支main。用户已授权学习任务读取远端新提交、维护学习档案并提交推送。学习任务开始前运行 `tools/sync-study.ps1 -Mode Before`，查看远端变化并重新读取档案；一次实质学习更新结束后运行 `tools/sync-study.ps1 -Mode After`，默认只提交helpstudy。详见 `helpstudy/GitHub同步约定.md`。遇到未提交改动、未发布旧提交、并发冲突或网络失败，保留内容并报告，不reset、不force push、不冒称已同步。不要把其他任务的修改混入提交。手机或其他会话写入仍依赖实际GitHub写权限，公开仓库不会自动给会话写权限。
+
 ## 学习长期记忆
 
 用户已授权在本知识库的 `helpstudy/` 中持续记录学习进度、待复习问题和后续规划。
