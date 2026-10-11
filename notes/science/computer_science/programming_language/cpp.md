@@ -1,15 +1,15 @@
 ---
-id: science/computer_science/infosec/data_structure
-title: 数据结构
+id: science/computer_science/programming_language/cpp
+title: C++
 type: domain
-parents: [science/computer_science/infosec]
+parents: [science/computer_science/programming_language]
 aliases: []
-tags: []
+tags: [programming_language]
 status: seed
-created: 2026-10-09
-updated: 2026-10-09
+created: 2026-10-11
+updated: 2026-10-11
 ---
-# 数据结构
+# C++
 
 ## 这个领域在研究什么
 
