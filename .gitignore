@@ -1,6 +1,9 @@
 # 构建产物（可随时由 tools/build.py 重新生成）
 /out/
 
+# 本地 AI 协作约定
+/AGENTS.md
+
 # 编辑器 / 系统
 # Obsidian 的库配置：任意层级都忽略（想跨机同步插件/快捷键时可改成逐文件忽略）
 .obsidian/
