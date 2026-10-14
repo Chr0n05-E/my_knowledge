@@ -3,7 +3,7 @@
 """
 知识库控制台（图形界面）
 
-双击仓库根目录的「启动知识库.bat」即可打开；它等价于命令行里的那些 python 命令：
+运行 python tools/gui.pyw 即可打开；它等价于命令行里的那些 python 命令：
   · 【构建 / 体检】  = python tools/build.py      （报告直接显示在窗口里）
   · 【新建笔记】     = python tools/new.py ...    （表单填好点一下）
   · 【打开图谱网页】 = 用浏览器打开 out/index.html
